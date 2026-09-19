@@ -386,7 +386,7 @@ export default function SiteDetail() {
                                onClick={async () => {
                                  setBusy(k.id)
                                  try {
-                                   const res = await apiRevealKey(id, k.remote_key_id)
+                                   const res = await apiRevealKey(id!, k.remote_key_id)
                                    setRevealedKeys((prev) => ({ ...prev, [k.id]: res.key }))
                                    toast.success('key 已获取')
                                  } catch (e) {

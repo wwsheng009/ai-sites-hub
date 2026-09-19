@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiGetSite, apiListUsageDaily, apiListUsageLogs } from '../api/endpoints'
 import type { Site, UsageDaily, UsageLog } from '../types'
-import { timeDisplay, statusBadgeCls } from '../components/ui'
+import { timeDisplay, statusBadgeCls, formatTokens } from '../components/ui'
 import { useToast, errMsg } from '../components/Toast'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500]
@@ -31,14 +31,6 @@ const DATE_PRESETS = [
   { label: '最近 14 天', value: 'last14d' },
   { label: '最近 30 天', value: 'last30d' },
 ]
-
-// 格式化 Token 数字（借鉴 sub2api formatTokens）
-function formatTokens(n: number): string {
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B'
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
-  return n.toLocaleString()
-}
 
 // 复制到剪贴板
 async function copyToClipboard(text: string): Promise<void> {

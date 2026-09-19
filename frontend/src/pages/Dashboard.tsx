@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { apiDoctor, apiListAffiliates, apiListSites, apiListSyncStates, apiListUsageDaily } from '../api/endpoints'
 import type { DoctorReport, Site, SiteAffiliateOut, SyncState, UsageDaily } from '../types'
 import { useToast, errMsg } from '../components/Toast'
-import { timeDisplay } from '../components/ui'
+import { timeDisplay, formatTokens } from '../components/ui'
 
 const checkBadge: Record<string, string> = {
   ok: 'badge-success',
@@ -132,7 +132,7 @@ export default function Dashboard() {
       {error && <p className="text-error">{error}</p>}
 
       {/* 统计卡片网格 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-primary">🌐</div>
           <div className="min-w-0">
@@ -166,7 +166,21 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="stat-card card-hover">
-          <div className="stat-icon stat-icon-danger">🩺</div>
+          <div className="stat-icon stat-icon-secondary">🔢</div>
+          <div className="min-w-0">
+            <div className="stat-value">{formatTokens(todayTokens)}</div>
+            <div className="stat-label">近 7 天 Token 总量</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-danger">💵</div>
+          <div className="min-w-0">
+            <div className="stat-value text-xl">{totalAmount.toFixed(4)}</div>
+            <div className="stat-label">近 7 天消耗合计（不折算汇率）</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-primary">🩺</div>
           <div className="min-w-0">
             <div className="stat-value">
               {doctor ? (

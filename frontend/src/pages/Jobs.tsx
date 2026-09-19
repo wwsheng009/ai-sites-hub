@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { apiGetSite, apiListSyncStates, apiSyncSite } from '../api/endpoints'
 import type { Site, SyncState } from '../types'
 import { useToast, errMsg } from '../components/Toast'
-import { timeDisplay, statusBadgeCls } from '../components/ui'
+import { timeDisplay } from '../components/ui'
 
 const domainLabels: Record<string, string> = {
   keys: '密钥',
@@ -118,7 +118,9 @@ export default function Jobs() {
                   <td>
                     <span
                       className={`badge ${
-                        s.consecutive_failures > 0 ? 'badge-danger' : s.last_error_class ? 'badge-warning' : 'badge-success'
+                        stateBadge[
+                          s.consecutive_failures > 0 ? 'error' : s.last_error_class ? 'warn' : 'ok'
+                        ]
                       }`}
                     >
                       {s.consecutive_failures > 0 ? '失败' : s.last_error_class ? '警告' : '正常'}

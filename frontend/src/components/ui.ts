@@ -21,6 +21,14 @@ export function eventLevelBadgeCls(level: string): string {
   return 'badge-primary'
 }
 
+/** Token 数字紧凑格式化（借鉴 sub2api formatTokens） */
+export function formatTokens(n: number): string {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+  return n.toLocaleString()
+}
+
 /** 相对时间显示（如 "3 分钟前"），超出一律显示绝对日期 */
 export function timeDisplay(s: string | null | undefined): string {
   if (!s) return '—'
