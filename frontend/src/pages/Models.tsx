@@ -2,13 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiListSiteModels, apiListSites } from '../api/endpoints'
 import type { Site, SiteModel } from '../types'
-import { timeDisplay } from '../components/ui'
+import { timeDisplay, formatTokens } from '../components/ui'
 
 const SearchIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1110.5 3a7.5 7.5 0 017.5 7.5z" />
   </svg>
 )
+
+/** 筛选 chip（借鉴 sub2api PlazaFilterBar 的 chip-tinted / chip-tinted-active） */
+const chipCls = (active: boolean) =>
+  active
+    ? 'rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white transition'
+    : 'rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200 dark:bg-dark-700 dark:text-dark-200 dark:hover:bg-dark-600'
 
 export default function Models() {
   const [items, setItems] = useState<SiteModel[]>([])
@@ -93,52 +99,79 @@ export default function Models() {
         <p className="mt-1 text-sm text-muted">跨站模型/价格对照（currency 不折算，按站点分别展示）</p>
       </div>
 
-      {/* 借鉴 sub2api ModelPlazaContent 的筛选栏 */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 dark:border-dark-700 dark:bg-dark-800/50">
-        <div className="relative w-full max-w-xs">
-          <input
-            type="text"
-            className="input pl-8"
-            placeholder="搜索模型名称..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <SearchIcon className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-dark-500" />
+      {/* 筛选区（借鉴 sub2api PlazaFilterBar：左侧维度标签 + 右侧 chip 行） */}
+      <div className="space-y-3 rounded-2xl border border-gray-100 bg-white px-5 py-4 dark:border-dark-700/50 dark:bg-dark-800/50">
+        {/* 一级：站点 */}
+        <div className="flex items-start gap-2">
+          <span className="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+            站点
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={chipCls(siteFilter === 'all')} onClick={() => setSiteFilter('all')}>
+              全部
+            </button>
+            {sites.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={chipCls(siteFilter === s.id)}
+                onClick={() => setSiteFilter(s.id)}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <select
-          className="input w-40"
-          value={siteFilter}
-          onChange={(e) => setSiteFilter(e.target.value)}
-        >
-          <option value="all">全部站点</option>
-          {sites.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {/* 二级：排序 */}
+        <div className="flex items-start gap-2">
+          <span className="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+            排序
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={chipCls(sortKey === 'total_tokens')}
+              onClick={() => setSortKey('total_tokens')}
+            >
+              按用量
+            </button>
+            <button
+              type="button"
+              className={chipCls(sortKey === 'amount')}
+              onClick={() => setSortKey('amount')}
+            >
+              按金额
+            </button>
+          </div>
+        </div>
 
-        <select
-          className="input w-36"
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value as 'total_tokens' | 'amount')}
-        >
-          <option value="total_tokens">按用量排序</option>
-          <option value="amount">按金额排序</option>
-        </select>
-
-        {(search || siteFilter !== 'all') && (
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              setSearch('')
-              setSiteFilter('all')
-            }}
-          >
-            重置
-          </button>
-        )}
+        {/* 三级：模型名搜索（纯前端过滤） */}
+        <div className="flex flex-wrap items-start gap-2">
+          <span className="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+            模型
+          </span>
+          <div className="relative w-full sm:w-72">
+            <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-dark-500" />
+            <input
+              type="text"
+              className="input rounded-lg py-1.5 pl-9 pr-9"
+              placeholder="搜索模型名称..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600 dark:text-dark-500 dark:hover:text-gray-300"
+                onClick={() => setSearch('')}
+                aria-label="清空搜索"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {models.length === 0 ? (
@@ -151,10 +184,26 @@ export default function Models() {
         </div>
       ) : (
         <div className="space-y-4">
-          {sortedModels.map(([model, modelSites]) => (
+          {sortedModels.map(([model, modelSites]) => {
+            // 借鉴 sub2api PlazaGroupSection：分组头部用徽章展示聚合信息
+            const totalTokens = modelSites.reduce((s, x) => s + x.total_tokens, 0)
+            const amounts = modelSites.reduce<Record<string, number>>((m, x) => {
+              m[x.currency] = (m[x.currency] ?? 0) + x.amount
+              return m
+            }, {})
+            return (
             <div key={model} className="card">
               <div className="card-header">
-                <h3 className="font-medium text-gray-900 dark:text-white">{model}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-medium text-gray-900 dark:text-white">{model}</h3>
+                  <span className="badge badge-muted">{modelSites.length} 个站点</span>
+                  <span className="badge badge-primary">{formatTokens(totalTokens)} tokens</span>
+                  {Object.entries(amounts).map(([cur, amt]) => (
+                    <span key={cur} className="badge badge-success">
+                      {amt.toFixed(4)} {cur}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="card-body p-0">
                 <div className="table-container border-0">
@@ -179,7 +228,7 @@ export default function Models() {
                               {s.site_name || s.site_id}
                             </Link>
                           </td>
-                          <td className="font-mono text-xs">{s.total_tokens.toLocaleString()}</td>
+                          <td className="font-mono text-xs">{formatTokens(s.total_tokens)}</td>
                           <td className="font-mono text-xs">
                             {s.amount} <span className="text-xs text-muted">({s.currency})</span>
                           </td>
@@ -192,7 +241,8 @@ export default function Models() {
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
