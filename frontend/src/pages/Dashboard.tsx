@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { apiDoctor, apiListAffiliates, apiListSites, apiListUsageDaily } from '../api/endpoints'
-import type { DoctorReport, Site, SiteAffiliateOut, UsageDaily } from '../types'
+import { Link, useNavigate } from 'react-router-dom'
+import { apiDoctor, apiListAffiliates, apiListSites, apiListSyncStates, apiListUsageDaily } from '../api/endpoints'
+import type { DoctorReport, Site, SiteAffiliateOut, SyncState, UsageDaily } from '../types'
 import { useToast, errMsg } from '../components/Toast'
+import { timeDisplay } from '../components/ui'
 
 const checkBadge: Record<string, string> = {
   ok: 'badge-success',
@@ -12,10 +13,12 @@ const checkBadge: Record<string, string> = {
 
 export default function Dashboard() {
   const toast = useToast()
+  const navigate = useNavigate()
   const [sites, setSites] = useState<Site[]>([])
   const [affs, setAffs] = useState<SiteAffiliateOut[]>([])
   const [doctor, setDoctor] = useState<DoctorReport | null>(null)
   const [daily, setDaily] = useState<Record<string, UsageDaily[]>>({})
+  const [syncStates, setSyncStates] = useState<Record<string, SyncState[]>>({})
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -39,6 +42,18 @@ export default function Dashboard() {
             bySite[st.id] = results[i] || []
           })
           setDaily(bySite)
+
+          // S1：同步作业状态（用于余额卡片 freshness）
+          return Promise.all(
+            activeSites.map((st) => apiListSyncStates(st.id).catch(() => [])),
+          )
+        }).then((syncResults) => {
+          if (!syncResults) return
+          const byState: Record<string, SyncState[]> = {}
+          activeSites.forEach((st, i) => {
+            byState[st.id] = syncResults[i] || []
+          })
+          setSyncStates(byState)
         })
       })
       .catch((e) => {
@@ -58,6 +73,21 @@ export default function Dashboard() {
 
   const totalAvailable = affs.reduce((sum, a) => sum + (a.available ?? 0), 0)
   const okCount = sites.filter((s) => s.status === 'ok' || s.status === 'active').length
+
+  // S3：余额卡片 freshness — 检查所有站点 account 域是否 stale（>2min）
+  const staleSites = sites.filter((s) => {
+    const states = syncStates[s.id] || []
+    const accountState = states.find((st) => st.domain === 'account')
+    if (!accountState || !accountState.last_run_at) return false
+    return Date.now() - new Date(accountState.last_run_at).getTime() > 120000
+  })
+  const lastSyncAt = (() => {
+    const all = Object.values(syncStates).flat()
+    if (all.length === 0) return null
+    const times = all.map((s) => s.last_run_at).filter(Boolean)
+    if (times.length === 0) return null
+    return new Date(Math.max(...times.map((t) => new Date(t!).getTime())))
+  })()
 
   // S3 日期辅助
   const today = () => new Date().toISOString().slice(0, 10)
@@ -110,6 +140,17 @@ export default function Dashboard() {
           <div className="min-w-0">
             <div className="stat-value truncate">{totalAvailable}</div>
             <div className="stat-label">返利可用余额合计</div>
+            {staleSites.length > 0 && (
+              <div className="mt-1 flex items-center gap-1 text-xs text-warning">
+                <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                <span>{staleSites.length} 个站点余额过期</span>
+              </div>
+            )}
+            {lastSyncAt && (
+              <div className="text-xs text-muted">
+                上次同步：{timeDisplay(lastSyncAt.toISOString())}
+              </div>
+            )}
           </div>
         </div>
         <div className="stat-card card-hover">
@@ -234,9 +275,11 @@ export default function Dashboard() {
                         key={siteId}
                         className="flex flex-col items-center"
                         title={`${site?.name || siteId}: ${info.amount} ${info.currency}`}
+                        onClick={() => navigate(`/sites/${siteId}/usage/logs?start=${d.date}&end=${d.date}`)}
+                        style={{ cursor: 'pointer' }}
                       >
                         <div
-                          className="w-8 rounded-t bg-primary-500 dark:bg-primary-400 transition-all"
+                          className="w-8 rounded-t bg-primary-500 dark:bg-primary-400 transition-all hover:opacity-80"
                           style={{ height: `${barHeight}px` }}
                         />
                         <span className="mt-1 max-w-[80px] truncate text-xs text-muted" title={site?.name || siteId}>

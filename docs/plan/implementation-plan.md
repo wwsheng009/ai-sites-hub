@@ -176,6 +176,8 @@
 
 **验收**：build + vet + test 均通过；`ListSiteModels` SQL 聚合正确（SiteA/gpt-4o 300 tok/1.5 amt/balance 50；SiteB/gpt-4o-mini 50 tok/0.2 amt/balance 100）；`currency` 仅标明不折算。
 
+> ⚠️ **未完成**：subscription 同步（api-inventory L191 「❌ 待新增 `SubscriptionInfo`」）。`site_account.subscription_state` 字段已留空，前端订阅到期提醒徽标未实现，待 upstream `/api/subscription/self` 对接。
+
 ### S5 落地记录（已完成）
 
 **已落代码**：
@@ -188,6 +190,8 @@
 - `internal/service/scheduler.go` — `announcements` + `checkin` 域加入 `ensureSiteDomains` + `syncDomain` switch（`syncAnnouncements` 占位/能力门控；`syncCheckin` 调用 `SyncCheckin`，401 冻结 credential）。
 
 **验收**：build + vet + test 均通过；迁移 6/6 应用；`site_announcements` 表结构与 unique index 校验通过；`ListAnnouncements` 查询正确（按发布时间倒序），`UpsertAnnouncement` 幂等。
+
+> ⚠️ **未完成**：`syncAnnouncements` 为占位实现（adapter 尚无公告接口，api-inventory L192 「❌ 待新增（低优先级）」），domain 行已占位，能力门控跳过。待 upstream `/api/notice` 对接后实现 `UpsertAnnouncement`。
 
  验收基线沿用 sync-architecture §7 各阶段「验收」列。
 

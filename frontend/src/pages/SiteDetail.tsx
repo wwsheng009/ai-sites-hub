@@ -228,6 +228,12 @@ export default function SiteDetail() {
             >
               调用明细
             </Link>
+            <Link
+              to={`/sites/${id}/jobs`}
+              className="btn btn-ghost btn-sm"
+            >
+              作业
+            </Link>
             <button
               className="btn btn-ghost btn-sm !text-red-500 hover:!bg-red-50 dark:hover:!bg-red-900/20"
               onClick={() => setConfirmDelete(true)}

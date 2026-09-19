@@ -664,6 +664,11 @@ func (s *Services) ListUsageLogs(ctx context.Context, siteID string, since, unti
 	return s.Repo.ListUsageLogs(ctx, siteID, since, until, modelName, limit)
 }
 
+// ListSyncStatesBySite 查询站点下所有域的调度状态（Jobs 页用）。
+func (s *Services) ListSyncStatesBySite(ctx context.Context, siteID string) ([]model.SiteSyncState, error) {
+	return s.Repo.ListSyncStateBySite(ctx, siteID)
+}
+
 // SyncUsageLog 游标增量拉取用量日志 → usage_logs 投影（S2）。
 // cursor 存于 site_sync_state.cursor（JSON {"since":"<RFC3339>"}），newapi 秒级 / sub2api 按日。
 func (s *Services) SyncUsageLog(ctx context.Context, ad adapter.SiteAdapter, atx adapter.AuthCtx, siteID string) (int, error) {

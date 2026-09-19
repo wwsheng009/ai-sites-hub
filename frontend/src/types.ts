@@ -178,3 +178,18 @@ export interface SiteModel {
   balance: number | null
   freshness: string
 }
+
+/** site_sync_state 域级状态（S1 作业页） */
+export interface SyncState {
+  id: string
+  site_id: string
+  domain: string
+  enabled: number
+  interval_s: number
+  last_run_at: string | null
+  next_run_at: string | null
+  cursor: string
+  fingerprint: string
+  consecutive_failures: number
+  last_error_class: string
+}

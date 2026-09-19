@@ -56,6 +56,17 @@ func (a *API) ListUsageLogs(c *gin.Context) {
 	OK(c, out)
 }
 
+// ListSyncStates GET /api/v1/sites/:id/sync-states — 作业页域级状态（S1）。
+func (a *API) ListSyncStates(c *gin.Context) {
+	siteID := c.Param("id")
+	states, err := a.Svc.ListSyncStatesBySite(c.Request.Context(), siteID)
+	if err != nil {
+		Fail(c, err)
+		return
+	}
+	OK(c, states)
+}
+
 // ListUsageDaily GET /api/v1/sites/:id/usage/daily?start=&end=&model=&limit=
 func (a *API) ListUsageDaily(c *gin.Context) {
 	siteID := c.Param("id")

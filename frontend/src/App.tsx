@@ -8,6 +8,7 @@ import Events from './pages/Events'
 import Announcements from './pages/Announcements'
 import Models from './pages/Models'
 import UsageLogs from './pages/UsageLogs'
+import Jobs from './pages/Jobs'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/sites" element={<Sites />} />
         <Route path="/sites/:id" element={<SiteDetail />} />
+        <Route path="/sites/:id/jobs" element={<Jobs />} />
         <Route path="/sites/:id/usage/logs" element={<UsageLogs />} />
         <Route path="/events" element={<Events />} />
         <Route path="/affiliates" element={<Affiliates />} />

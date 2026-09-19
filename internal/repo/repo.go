@@ -501,6 +501,18 @@ func (r *Repo) GetSyncState(ctx context.Context, siteID, domain string) (*model.
 	return &row, nil
 }
 
+// ListSyncStateBySite 查询站点下所有域的调度状态（作业页用）。
+func (r *Repo) ListSyncStateBySite(ctx context.Context, siteID string) ([]model.SiteSyncState, error) {
+	var out []model.SiteSyncState
+	if err := r.db.WithContext(ctx).Model(&model.SiteSyncState{}).
+		Where("site_id = ?", siteID).
+		Order("domain").
+		Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 查询站点调度状态: %w", err)
+	}
+	return out, nil
+}
+
 // ListSyncStateDue 读取 next_run_at <= now 的所有域（调度器 tick 用）。
 func (r *Repo) ListSyncStateDue(ctx context.Context, now time.Time) ([]SyncStateRow, error) {
 	var out []SyncStateRow

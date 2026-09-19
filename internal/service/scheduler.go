@@ -247,12 +247,47 @@ func (s *SyncScheduler) syncDomain(ctx context.Context, site model.Site, row rep
 	if err := s.repo.MarkSyncStateRun(ctx, site.ID, row.Domain, succ, "", cursor, fingerprint); err != nil {
 		s.log.Warn("scheduler: 更新调度状态失败", "site_id", site.ID, "domain", row.Domain, "err", err)
 	}
+	// §6 事件：emit sync.{domain}.{success|error}，data 含 duration/counts/cursor（不含敏感字段）。
+	s.emitSyncEvent(ctx, site.ID, row.Domain, succ, cursor)
 	return nil
+}
+
+// emitSyncEvent 记录同步事件（sync-architecture §6）。
+func (s *SyncScheduler) emitSyncEvent(ctx context.Context, siteID, domain string, succ bool, cursor *string) {
+	etype := "sync." + domain + "."
+	level := "info"
+	if !succ {
+		etype += "error"
+		level = "warn"
+	} else {
+		etype += "success"
+	}
+	data := map[string]any{"domain": domain, "succ": succ}
+	if cursor != nil {
+		data["cursor"] = *cursor
+	}
+	dj, _ := json.Marshal(data)
+	_ = s.repo.InsertEvent(ctx, &model.Event{
+		SiteID:  &siteID,
+		Type:    etype,
+		Level:   level,
+		Message: "同步完成",
+		Data:    string(dj),
+	})
 }
 
 func (s *SyncScheduler) markErr(ctx context.Context, siteID, domain, cls string, err error) error {
 	s.log.Warn("scheduler: 域同步失败", "site_id", siteID, "domain", domain, "class", cls, "err", err)
 	_ = s.repo.MarkSyncStateRun(ctx, siteID, domain, false, cls, nil, nil)
+	// §6 事件：emit sync.{domain}.error
+	dj, _ := json.Marshal(map[string]any{"domain": domain, "class": cls, "err": err.Error()})
+	_ = s.repo.InsertEvent(ctx, &model.Event{
+		SiteID:  &siteID,
+		Type:    "sync." + domain + ".error",
+		Level:   "warn",
+		Message: "同步失败",
+		Data:    string(dj),
+	})
 	return err
 }
 

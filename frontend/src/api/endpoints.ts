@@ -1,6 +1,6 @@
 // 按业务域组织的 API 封装（与 Go internal/httpx/router.go 对齐）
 import { del, get, post, put } from './client'
-import type { AffRule, AffTransfer, AffiliateInvitee, DoctorReport, Event, Site, SiteAffiliateOut, SiteAnnouncement, SiteCredentialState, SiteGroup, SiteKey, SiteModel, SyncResult, UsageDaily, UsageLog } from '../types'
+import type { AffRule, AffTransfer, AffiliateInvitee, DoctorReport, Event, Site, SiteAffiliateOut, SiteAnnouncement, SiteCredentialState, SiteGroup, SiteKey, SiteModel, SyncState, SyncResult, UsageDaily, UsageLog } from '../types'
 
 // ---- system ----
 export const apiHealth = () => get<{ status: string; version: string }>('/health')
@@ -86,6 +86,10 @@ export const apiListUsageDaily = (siteId: string, q?: { start?: string; end?: st
   const qs = p.toString()
   return get<UsageDaily[]>(`/sites/${encodeURIComponent(siteId)}/usage/daily${qs ? `?${qs}` : ''}`)
 }
+
+// ---- sync states（S1 作业页）----
+export const apiListSyncStates = (siteId: string) =>
+  get<SyncState[]>(`/sites/${encodeURIComponent(siteId)}/sync-states`)
 
 // ---- models（S4）----
 export const apiListSiteModels = (limit?: number) =>
