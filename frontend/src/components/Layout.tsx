@@ -73,6 +73,7 @@ const navItems = [
   { to: '/', label: '概览', icon: SquaresIcon, end: true },
   { to: '/sites', label: '站点管理', icon: GlobeIcon, end: false },
   { to: '/models', label: '模型广场', icon: SquaresIcon, end: false },
+  { to: '/site-status', label: '站点状态', icon: GlobeIcon, end: false },
   { to: '/announcements', label: '公告', icon: BellIcon, end: false },
   { to: '/events', label: '事件中心', icon: BellIcon, end: false },
   { to: '/affiliates', label: '返利中心', icon: CurrencyIcon, end: false },

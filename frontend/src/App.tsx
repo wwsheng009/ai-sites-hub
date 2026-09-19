@@ -9,6 +9,7 @@ import Announcements from './pages/Announcements'
 import Models from './pages/Models'
 import UsageLogs from './pages/UsageLogs'
 import Jobs from './pages/Jobs'
+import SiteStatus from './pages/SiteStatus'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/affiliates" element={<Affiliates />} />
         <Route path="/announcements" element={<Announcements />} />
         <Route path="/models" element={<Models />} />
+        <Route path="/site-status" element={<SiteStatus />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
