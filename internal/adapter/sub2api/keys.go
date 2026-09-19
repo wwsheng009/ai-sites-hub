@@ -3,98 +3,127 @@ package sub2api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"aiclient/internal/adapter"
 )
 
-// keyDTO GET /api/v1/keys 列表项（额度字段在 key 对象内）。
+// keyDTO GET /api/v1/keys 列表项（真实部署结构：额度在 key 上，分组是嵌套对象）。
 type keyDTO struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Group       string  `json:"group"`
-	Status      string  `json:"status"`
-	QuotaLimit  float64 `json:"quota_limit"`
-	QuotaUsed   float64 `json:"quota_used"`
-	QuotaRemain float64 `json:"quota_remaining"`
-	Unlimited   bool    `json:"unlimited_quota"`
-	ExpiresAt   string  `json:"expired_at"`
-	CreatedAt   string  `json:"created_at"`
+	ID        int64          `json:"id"`
+	Name      string         `json:"name"`
+	Status    string         `json:"status"`
+	GroupID   int64          `json:"group_id"`
+	Group     *keyGroupInner `json:"group"`
+	Quota     *float64       `json:"quota"`
+	QuotaUsed *float64       `json:"quota_used"`
+	ExpiresAt *string        `json:"expires_at"`
+	CreatedAt string         `json:"created_at"`
 }
 
-// keysPage 分页结构（data 内 list/total，结构以实际部署为准，M2 宽松解析）。
-type keysPage struct {
+// keyGroupInner key 内嵌分组摘要。
+type keyGroupInner struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// keysData GET /api/v1/keys 响应 data（分页）。
+type keysData struct {
 	Items    []keyDTO `json:"items"`
 	Total    int64    `json:"total"`
 	Page     int      `json:"page"`
 	PageSize int      `json:"page_size"`
 }
 
-// groupDTO 可绑分组。
+// groupDTO 可绑分组（真实字段：rate_multiplier 倍率，status 判可用）。
 type groupDTO struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Ratio     float64 `json:"ratio"`
-	Available bool    `json:"available"`
-	Desc      string  `json:"description"`
+	ID             int64   `json:"id"`
+	Name           string  `json:"name"`
+	Description    string  `json:"description"`
+	RateMultiplier float64 `json:"rate_multiplier"`
+	Status         string  `json:"status"`
 }
 
-// ListKeys 分页拉取 key 列表（M2 单页版：一次拉取，封顶 500）。
+// affData GET /api/v1/user/aff 响应 data。
+type affData struct {
+	AffCode        string   `json:"aff_code"`
+	AffCount       int      `json:"aff_count"`
+	AffFrozenQuota *float64 `json:"aff_frozen_quota"`
+	AffHistory     *float64 `json:"aff_history_quota"`
+	RebatePercent  *float64 `json:"effective_rebate_rate_percent"`
+}
+
+// ListKeys 分页拉取 key 列表（单页封顶 500；Bearer 认证）。
 func (a *Adapter) ListKeys(ctx context.Context, atx adapter.AuthCtx, page adapter.Page) (adapter.KeyPage, error) {
 	if atx.AccessToken == "" {
 		return adapter.KeyPage{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 access token", nil)
 	}
-	var out keysPage
+	var env apiEnvelope
 	url := fmt.Sprintf("%s/api/v1/keys?page=%d&page_size=%d", a.BaseURL(), maxInt(page.Page, 1), clampSize(page.Size))
-	status, _, err := a.hc.DoJSON(ctx, "GET", url, nil, &out)
+	status, _, err := a.hc.DoJSONWithHeader(ctx, "GET", url, nil, &env, authHeaders(atx.AccessToken))
 	if err != nil {
 		return adapter.KeyPage{}, adapter.NewErr(adapter.CodeUpstreamError, "拉取 key 列表失败", err)
 	}
-	if status != http.StatusOK {
+	if status != http.StatusOK || env.Code != 0 {
 		return adapter.KeyPage{}, statusErr(status, "拉取 key 列表")
 	}
+	var out keysData
+	_ = json.Unmarshal(env.Data, &out)
 	items := make([]adapter.SiteKey, 0, len(out.Items))
 	for _, k := range out.Items {
-		limit := k.QuotaLimit
-		used := k.QuotaUsed
-		rem := k.QuotaRemain
+		groupName := ""
+		if k.Group != nil {
+			groupName = k.Group.Name
+		}
+		var expiresAt *time.Time
+		if k.ExpiresAt != nil && *k.ExpiresAt != "" {
+			if t, err := time.Parse(time.RFC3339, *k.ExpiresAt); err == nil {
+				expiresAt = &t
+			}
+		}
 		items = append(items, adapter.SiteKey{
-			RemoteKeyID:    k.ID,
+			RemoteKeyID:    strconv.FormatInt(k.ID, 10),
 			Name:           k.Name,
-			Group:          k.Group,
+			Group:          groupName,
 			Status:         k.Status,
-			QuotaLimit:     ptrF(limit),
-			QuotaUsed:      ptrF(used),
-			QuotaRemaining: ptrF(rem),
-			Unlimited:      k.Unlimited,
+			QuotaLimit:     k.Quota,
+			QuotaUsed:      k.QuotaUsed,
+			QuotaRemaining: subF(k.Quota, k.QuotaUsed),
+			Unlimited:      k.Quota == nil || *k.Quota == 0,
+			ExpiresAt:      expiresAt,
 			KeySource:      "plaintext",
 		})
 	}
 	return adapter.KeyPage{Items: items, Total: int(out.Total), Page: out.Page, HasNext: false}, nil
 }
 
-// ListGroups 用户可绑分组。
+// ListGroups 用户可绑分组（Bearer 认证；available=status==active）。
 func (a *Adapter) ListGroups(ctx context.Context, atx adapter.AuthCtx) ([]adapter.Group, error) {
 	if atx.AccessToken == "" {
 		return nil, adapter.NewErr(adapter.CodeUnauthorized, "缺少 access token", nil)
 	}
-	var out []groupDTO
-	status, _, err := a.hc.DoJSON(ctx, "GET", a.endpoint("/api/v1/groups/available"), nil, &out)
+	var env apiEnvelope
+	status, _, err := a.hc.DoJSONWithHeader(ctx, "GET", a.endpoint("/api/v1/groups/available"), nil, &env, authHeaders(atx.AccessToken))
 	if err != nil {
 		return nil, adapter.NewErr(adapter.CodeUpstreamError, "拉取分组失败", err)
 	}
-	if status != http.StatusOK {
+	if status != http.StatusOK || env.Code != 0 {
 		return nil, statusErr(status, "拉取分组")
 	}
+	var out []groupDTO
+	_ = json.Unmarshal(env.Data, &out)
 	groups := make([]adapter.Group, 0, len(out))
 	for _, g := range out {
 		groups = append(groups, adapter.Group{
-			RemoteGroupID: g.ID,
+			RemoteGroupID: strconv.FormatInt(g.ID, 10),
 			Name:          g.Name,
-			Ratio:         g.Ratio,
-			Available:     g.Available,
-			Desc:          g.Desc,
+			Ratio:         g.RateMultiplier,
+			Available:     g.Status == "active",
+			Desc:          g.Description,
 		})
 	}
 	return groups, nil
@@ -108,36 +137,33 @@ func (a *Adapter) Quota(ctx context.Context, atx adapter.AuthCtx) (adapter.Accou
 	return adapter.AccountQuota{Currency: "USD", UnitNote: "sub2api 账号额度端点待 M4 接入"}, nil
 }
 
-// affResp GET /api/v1/user/aff 响应（字段宽松解析，缺失记 NULL）。
-type affResp struct {
-	AffCode      string   `json:"aff_code"`
-	RebateRate   *float64 `json:"rebate_rate"`
-	Available    *float64 `json:"available"`
-	Frozen       *float64 `json:"frozen"`
-	History      *float64 `json:"history"`
-	InviteeCount *int     `json:"invitee_count"`
-}
-
-// AffiliateInfo 返利概览（FR-10.1）。
+// AffiliateInfo 返利概览（FR-10.1；rebate_rate 以小数存储，available 暂无对应端点记 NULL）。
 func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapter.AffiliateInfo, error) {
 	if atx.AccessToken == "" {
 		return adapter.AffiliateInfo{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 access token", nil)
 	}
-	var out affResp
-	status, _, err := a.hc.DoJSON(ctx, "GET", a.endpoint("/api/v1/user/aff"), nil, &out)
+	var env apiEnvelope
+	status, _, err := a.hc.DoJSONWithHeader(ctx, "GET", a.endpoint("/api/v1/user/aff"), nil, &env, authHeaders(atx.AccessToken))
 	if err != nil {
 		return adapter.AffiliateInfo{}, adapter.NewErr(adapter.CodeUpstreamError, "拉取返利信息失败", err)
 	}
-	if status != http.StatusOK {
+	if status != http.StatusOK || env.Code != 0 {
 		return adapter.AffiliateInfo{}, statusErr(status, "拉取返利信息")
 	}
+	var out affData
+	_ = json.Unmarshal(env.Data, &out)
+	var rebate *float64
+	if out.RebatePercent != nil {
+		v := *out.RebatePercent / 100
+		rebate = &v
+	}
+	count := out.AffCount
 	return adapter.AffiliateInfo{
 		AffCode:      out.AffCode,
-		RebateRate:   out.RebateRate,
-		Available:    out.Available,
-		Frozen:       out.Frozen,
-		History:      out.History,
-		InviteeCount: out.InviteeCount,
+		RebateRate:   rebate,
+		Frozen:       out.AffFrozenQuota,
+		History:      out.AffHistory,
+		InviteeCount: &count,
 		Currency:     "USD",
 		UnitNote:     "站点余额单位",
 	}, nil
@@ -156,17 +182,16 @@ func (a *Adapter) TransferAffiliate(ctx context.Context, atx adapter.AuthCtx, am
 	if amount.Value <= 0 {
 		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUpstreamError, "划转金额必须大于 0", nil)
 	}
-	var out map[string]any
-	status, _, err := a.hc.DoJSON(ctx, "POST", a.endpoint("/api/v1/user/aff/transfer"),
-		transferReq{Amount: amount.Value}, &out)
+	var env apiEnvelope
+	status, _, err := a.hc.DoJSONWithHeader(ctx, "POST", a.endpoint("/api/v1/user/aff/transfer"),
+		transferReq{Amount: amount.Value}, &env, authHeaders(atx.AccessToken))
 	if err != nil {
 		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUpstreamError, "划转请求失败", err)
 	}
-	if status != http.StatusOK {
+	if status != http.StatusOK || env.Code != 0 {
 		return adapter.TransferResult{}, statusErr(status, "划转")
 	}
-	msg, _ := out["message"].(string)
-	return adapter.TransferResult{Amount: amount.Value, Currency: "USD", UnitNote: "站点余额单位", Message: msg}, nil
+	return adapter.TransferResult{Amount: amount.Value, Currency: "USD", UnitNote: "站点余额单位", Message: env.Message}, nil
 }
 
 // CheckinStatus / Checkin：sub2api 不支持签到（Capabilities.Checkin=unsupported）。
@@ -182,7 +207,17 @@ func (a *Adapter) Checkin(ctx context.Context, atx adapter.AuthCtx) (adapter.Che
 
 // ---- 共用小工具 ----
 
-func ptrF(f float64) *float64 { return &f }
+// subF a-b（nil 透传 nil，用于 剩余=quota-quota_used）。
+func subF(a, b *float64) *float64 {
+	if a == nil {
+		return nil
+	}
+	v := *a
+	if b != nil {
+		v -= *b
+	}
+	return &v
+}
 
 func clampSize(size int) int {
 	if size <= 0 {
