@@ -600,6 +600,10 @@ func (s *Services) GetAffiliate(ctx context.Context, siteID string) (*AffiliateO
 
 // PutAffiliateRule 更新自动划转规则（FR-10.4 配置）。
 func (s *Services) PutAffiliateRule(ctx context.Context, siteID string, rule AffRule) error {
+	// 先校验站点存在，避免为不存在的站点创建孤儿规则投影
+	if _, err := s.Repo.GetSite(ctx, siteID); err != nil {
+		return err
+	}
 	if rule.MinAmount < 0 || rule.MaxPerTransfer < 0 || rule.DailyLimit < 0 {
 		return errors.New("规则数值不能为负")
 	}

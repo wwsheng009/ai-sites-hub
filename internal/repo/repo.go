@@ -386,7 +386,8 @@ func (r *Repo) ListAffiliates(ctx context.Context, siteIDs []string) ([]model.Si
 	return out, nil
 }
 
-// UpdateAffiliateCfg 更新划转规则 JSON（FR-10.4 配置）。
+// UpdateAffiliateCfg 更新划转规则 JSON（FR-10.4 配置）；投影不存在时以
+// freshness=missing 的最小行 upsert（单管理员场景，无并发竞争担忧）。
 func (r *Repo) UpdateAffiliateCfg(ctx context.Context, siteID, cfgJSON string) error {
 	now := time.Now()
 	res := r.db.WithContext(ctx).Model(&model.SiteAffiliate{}).
@@ -396,7 +397,13 @@ func (r *Repo) UpdateAffiliateCfg(ctx context.Context, siteID, cfgJSON string) e
 		return fmt.Errorf("repo: 更新划转规则: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return ErrNotFound
+		row := model.SiteAffiliate{
+			ID: newID(), SiteID: siteID,
+			AffCfg: cfgJSON, Freshness: "missing", UpdatedAt: now,
+		}
+		if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+			return fmt.Errorf("repo: 创建划转规则投影: %w", err)
+		}
 	}
 	return nil
 }
