@@ -232,6 +232,11 @@ export default function SiteDetail() {
             >
               编辑凭据
             </button>
+            {auth && (
+              <span className={`badge self-center ${auth.auth_state === 'ok' ? 'badge-success' : auth.auth_state === 'none' ? 'badge-muted' : 'badge-warning'}`}>
+                {auth.auth_state}
+              </span>
+            )}
             <Link
               to={`/sites/${id}/usage/logs`}
               className="btn btn-ghost btn-sm"
@@ -657,24 +662,6 @@ export default function SiteDetail() {
                     )}
                   </tbody>
                 </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 右侧：凭据卡片 */}
-        <div className="card self-start">
-          <div className="card-header">
-            <h3 className="font-semibold text-gray-900 dark:text-white">凭据</h3>
-            <p className="mt-0.5 text-xs text-gray-400 dark:text-dark-400">AES-256-GCM 加密存储，前端不留存</p>
-          </div>
-          <div className="card-body space-y-4">
-            {auth && (
-              <div className="flex items-center gap-2 rounded-xl bg-gray-50 p-3 dark:bg-dark-800/50">
-                <span className={`badge ${auth.auth_state === 'ok' ? 'badge-success' : auth.auth_state === 'none' ? 'badge-muted' : 'badge-warning'}`}>
-                  {auth.auth_state}
-                </span>
-                {auth.auth_state_msg && <span className="text-xs text-muted">{auth.auth_state_msg}</span>}
               </div>
             )}
           </div>
