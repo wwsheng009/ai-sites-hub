@@ -267,7 +267,7 @@ export default function UsageLogs() {
 
   // 统计卡片数据（从 statsDaily 全量数据聚合，借鉴 sub2api UsageStatsCards）
   // sub2api 页面展示「今日 vs 累计」两行网格，这里也采用相同模式
-  const today = useMemo(() => {
+  const todayData = useMemo(() => {
     const t = today()
     return statsDaily.filter((d) => d.day.slice(0, 10) === t)
   }, [statsDaily])
@@ -278,14 +278,14 @@ export default function UsageLogs() {
     const totalPrompt = statsDaily.reduce((sum, d) => sum + d.prompt_tokens, 0)
     const totalCompletion = statsDaily.reduce((sum, d) => sum + d.completion_tokens, 0)
     const totalAmount = statsDaily.reduce((sum, d) => sum + d.amount, 0)
-    const todayRequests = today.reduce((sum, d) => sum + d.request_count, 0)
-    const todayTokens = today.reduce((sum, d) => sum + d.total_tokens, 0)
-    const todayAmount = today.reduce((sum, d) => sum + d.amount, 0)
+    const todayRequests = todayData.reduce((sum, d) => sum + d.request_count, 0)
+    const todayTokens = todayData.reduce((sum, d) => sum + d.total_tokens, 0)
+    const todayAmount = todayData.reduce((sum, d) => sum + d.amount, 0)
     return {
       totalRequests, totalTokens, totalPrompt, totalCompletion, totalAmount,
       todayRequests, todayTokens, todayAmount,
     }
-  }, [statsDaily, today])
+  }, [statsDaily, todayData])
 
   // 趋势图数据（按日期排序）
   const trendData = useMemo(() => {
