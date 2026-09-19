@@ -229,6 +229,7 @@ type UsageDaily struct {
 	TotalTokens      int64   `gorm:"column:total_tokens;not null;default:0" json:"total_tokens"`
 	Amount           float64 `gorm:"column:amount;not null;default:0" json:"amount"`
 	Currency         string  `gorm:"column:currency;not null;default:'quota'" json:"currency"`
+	RequestCount     int64   `gorm:"column:request_count;not null;default:0" json:"request_count"`
 }
 
 // TableName 表名。

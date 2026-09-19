@@ -815,9 +815,9 @@ func (r *Repo) UpsertCheckin(ctx context.Context, c *model.SiteCheckin) error {
 
 // AggregateUsageDaily 按 day + model_name 汇总 usage_logs → usage_daily（幂等 upsert）。
 func (r *Repo) AggregateUsageDaily(ctx context.Context, siteID, day string) (int, error) {
-	const aggSQL = `INSERT INTO usage_daily (id, site_id, day, model_name, prompt_tokens, completion_tokens, total_tokens, amount, currency)
+	const aggSQL = `INSERT INTO usage_daily (id, site_id, day, model_name, prompt_tokens, completion_tokens, total_tokens, amount, currency, request_count)
 SELECT ?, ?, ?, COALESCE(model_name,''),
-       SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(amount), 'quota'
+       SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(amount), 'quota', COUNT(*)
 FROM usage_logs
 WHERE site_id = ? AND date(ts) = ?
 GROUP BY COALESCE(model_name,'')
@@ -825,7 +825,8 @@ ON CONFLICT(site_id, day, model_name) DO UPDATE SET
   prompt_tokens = excluded.prompt_tokens,
   completion_tokens = excluded.completion_tokens,
   total_tokens = excluded.total_tokens,
-  amount = excluded.amount;`
+  amount = excluded.amount,
+  request_count = excluded.request_count;`
 	res := r.db.WithContext(ctx).Exec(aggSQL, newID(), siteID, day, siteID, day)
 	if res.Error != nil {
 		return 0, fmt.Errorf("repo: 汇总 usage_daily: %w", res.Error)

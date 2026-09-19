@@ -165,6 +165,7 @@ export interface UsageDaily {
   total_tokens: number
   amount: number
   currency: string
+  request_count: number
 }
 
 /** models 广场（S4） */
