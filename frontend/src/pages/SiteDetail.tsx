@@ -226,6 +226,12 @@ export default function SiteDetail() {
             <button className="btn btn-secondary btn-sm" disabled={busy === 'authtest'} onClick={() => run(() => apiAuthTest(id!), '登录测试完成', 'authtest')}>
               {busy === 'authtest' ? '测试中…' : '登录测试'}
             </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setCredEditOpen(true)}
+            >
+              编辑凭据
+            </button>
             <Link
               to={`/sites/${id}/usage/logs`}
               className="btn btn-ghost btn-sm"
@@ -671,12 +677,6 @@ export default function SiteDetail() {
                 {auth.auth_state_msg && <span className="text-xs text-muted">{auth.auth_state_msg}</span>}
               </div>
             )}
-            <button
-              className="btn btn-outline btn-sm w-full"
-              onClick={() => setCredEditOpen(true)}
-            >
-              编辑凭据
-            </button>
           </div>
         </div>
 
