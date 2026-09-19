@@ -109,6 +109,18 @@ export default function Dashboard() {
     return Object.values(byDate).sort((a, b) => (a.date > b.date ? 1 : -1))
   })()
 
+  // S3 增强：跨站 Token 统计（借鉴 sub2api UserDashboardStats）
+  const todayTokens = Object.values(daily).flat().reduce((sum, d) => sum + d.total_tokens, 0)
+  const totalAmount = Object.values(daily).flat().reduce((sum, d) => sum + d.amount, 0)
+
+  // 快速操作（借鉴 sub2api UserDashboardQuickActions）
+  const quickActions = [
+    { to: '/sites', label: '站点管理', icon: '🌐', desc: '添加/编辑站点' },
+    { to: '/models', label: '模型广场', icon: '🤖', desc: '浏览可用模型' },
+    { to: '/announcements', label: '公告', icon: '🔔', desc: '查看最新公告' },
+    { to: '/events', label: '事件中心', icon: '📋', desc: '同步事件与告警' },
+  ]
+
   return (
     <div className="space-y-6">
       {/* 页头 */}
@@ -167,6 +179,30 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* 快速操作（借鉴 sub2api UserDashboardQuickActions） */}
+      <section className="card">
+        <div className="card-header">
+          <h3 className="font-semibold text-gray-900 dark:text-white">快速操作</h3>
+        </div>
+        <div className="card-body">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {quickActions.map((a) => (
+              <Link
+                key={a.to}
+                to={a.to}
+                className="group flex flex-col items-center gap-2 rounded-xl bg-gray-50 p-4 text-center transition-all duration-200 hover:bg-gray-100 dark:bg-dark-800/50 dark:hover:bg-dark-800"
+              >
+                <span className="text-2xl">{a.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{a.label}</p>
+                  <p className="text-xs text-gray-500 dark:text-dark-400">{a.desc}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {/* 返利概览 */}
