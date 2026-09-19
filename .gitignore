@@ -1,0 +1,41 @@
+# ---- Go ----
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+
+# ---- 前端 ----
+frontend/node_modules/
+frontend/dist/
+frontend/*.local
+
+# ---- 运行时产物（NFR-7：仓库不放日志/pid/数据） ----
+*.log
+*.pid
+logs/
+data/
+var/
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- 密钥/环境 ----
+.env
+.env.*
+*.pem
+config.local.yaml
+
+# ---- 编辑器 / OS ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- 本地工具产物 ----
+.aicli/
+aicli-pipe-debug.log
+.backups/
