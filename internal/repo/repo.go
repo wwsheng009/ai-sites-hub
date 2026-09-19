@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"aiclient/internal/model"
 )
@@ -238,26 +239,11 @@ func (r *Repo) UpsertKeys(ctx context.Context, siteID string, keys []model.SiteK
 			keys[i].SiteID = siteID
 			now := time.Now()
 			keys[i].LastSyncAt = &now
-			if err := tx.Where("site_id = ? AND remote_key_id = ?", siteID, keys[i].RemoteKeyID).
-				FirstOrCreate(&keys[i]).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "site_id"}, {Name: "remote_key_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"name", "grp", "status", "quota_limit", "quota_used", "quota_remaining", "unlimited", "expires_at", "key_source", "freshness", "last_sync_at"}),
+			}).Create(&keys[i]).Error; err != nil {
 				return fmt.Errorf("repo: upsert key %s: %w", keys[i].RemoteKeyID, err)
-			}
-			if err := tx.Model(&model.SiteKey{}).
-				Where("site_id = ? AND remote_key_id = ?", siteID, keys[i].RemoteKeyID).
-				Updates(map[string]any{
-					"name":            keys[i].Name,
-					"grp":             keys[i].Group,
-					"status":          keys[i].Status,
-					"quota_limit":     keys[i].QuotaLimit,
-					"quota_used":      keys[i].QuotaUsed,
-					"quota_remaining": keys[i].QuotaRemaining,
-					"unlimited":       keys[i].Unlimited,
-					"expires_at":      keys[i].ExpiresAt,
-					"key_source":      keys[i].KeySource,
-					"freshness":       "fresh",
-					"last_sync_at":    now,
-				}).Error; err != nil {
-				return fmt.Errorf("repo: 更新 key %s: %w", keys[i].RemoteKeyID, err)
 			}
 		}
 		return nil
@@ -290,21 +276,11 @@ func (r *Repo) UpsertGroups(ctx context.Context, siteID string, groups []model.S
 			groups[i].SiteID = siteID
 			now := time.Now()
 			groups[i].LastSyncAt = &now
-			if err := tx.Where("site_id = ? AND remote_group_id = ?", siteID, groups[i].RemoteGroupID).
-				FirstOrCreate(&groups[i]).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "site_id"}, {Name: "remote_group_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"name", "ratio", "available", "desc", "freshness", "last_sync_at"}),
+			}).Create(&groups[i]).Error; err != nil {
 				return fmt.Errorf("repo: upsert group %s: %w", groups[i].RemoteGroupID, err)
-			}
-			if err := tx.Model(&model.SiteGroup{}).
-				Where("site_id = ? AND remote_group_id = ?", siteID, groups[i].RemoteGroupID).
-				Updates(map[string]any{
-					"name":         groups[i].Name,
-					"ratio":        groups[i].Ratio,
-					"available":    groups[i].Available,
-					"desc":         groups[i].Desc,
-					"freshness":    "fresh",
-					"last_sync_at": now,
-				}).Error; err != nil {
-				return fmt.Errorf("repo: 更新 group %s: %w", groups[i].RemoteGroupID, err)
 			}
 		}
 		return nil

@@ -52,7 +52,8 @@ type groupDTO struct {
 type affData struct {
 	AffCode        string   `json:"aff_code"`
 	AffCount       int      `json:"aff_count"`
-	AffFrozenQuota *float64 `json:"aff_frozen_quota"`
+	AffQuota       *float64 `json:"aff_quota"`       // 可划转返利余额
+	AffFrozenQuota *float64 `json:"aff_frozen_quota"` // 冻结中
 	AffHistory     *float64 `json:"aff_history_quota"`
 	RebatePercent  *float64 `json:"effective_rebate_rate_percent"`
 }
@@ -161,6 +162,7 @@ func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapt
 	return adapter.AffiliateInfo{
 		AffCode:      out.AffCode,
 		RebateRate:   rebate,
+		Available:    out.AffQuota,
 		Frozen:       out.AffFrozenQuota,
 		History:      out.AffHistory,
 		InviteeCount: &count,
