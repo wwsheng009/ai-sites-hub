@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   apiAuthTest,
@@ -29,6 +30,12 @@ import { eventLevelBadgeCls, siteTypeBadgeCls, statusBadgeCls, timeDisplay } fro
 type EditState = { name: string; proxy_url: string; site_type: string }
 type Tab = 'keys' | 'groups' | 'affiliate' | 'events' | 'checkin'
 
+const SearchIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1110.5 3a7.5 7.5 0 017.5 7.5z" />
+  </svg>
+)
+
 export default function SiteDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -48,6 +55,10 @@ export default function SiteDetail() {
   const [busy, setBusy] = useState('')
   const [checkinEnabled, setCheckinEnabled] = useState(false)
   const [credEditOpen, setCredEditOpen] = useState(false)
+
+  // Keys 标签搜索/筛选（借鉴 sub2api KeysView）
+  const [keySearch, setKeySearch] = useState('')
+  const [keyStatusFilter, setKeyStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
 
   // 编辑站点
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -283,20 +294,61 @@ export default function SiteDetail() {
 
             {/* Keys */}
             {tab === 'keys' && (
-              <div className="table-container rounded-t-none border-0">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>名称</th>
-                      <th>分组</th>
-                      <th>状态</th>
-                      <th>已用 / 上限</th>
-                      <th>来源</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                   <tbody>
-                     {keys.map((k) => (
+              <div>
+                {/* 搜索 + 筛选栏（借鉴 sub2api KeysView） */}
+                <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3 dark:border-dark-700">
+                  <div className="relative w-full max-w-xs">
+                    <input
+                      type="text"
+                      className="input pl-8"
+                      placeholder="搜索 Key 名称..."
+                      value={keySearch}
+                      onChange={(e) => setKeySearch(e.target.value)}
+                    />
+                    <SearchIcon className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-dark-500" />
+                  </div>
+                  <select
+                    className="input w-32"
+                    value={keyStatusFilter}
+                    onChange={(e) => setKeyStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="active">正常</option>
+                    <option value="inactive">失效</option>
+                  </select>
+                  <button
+                    className="ml-auto btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setKeySearch('')
+                      setKeyStatusFilter('all')
+                    }}
+                  >
+                    重置
+                  </button>
+                </div>
+                <div className="table-container rounded-t-none border-0">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>名称</th>
+                        <th>分组</th>
+                        <th>状态</th>
+                        <th>已用 / 上限</th>
+                        <th>来源</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {keys
+                        .filter((k) => {
+                          const matchSearch = k.name.toLowerCase().includes(keySearch.toLowerCase())
+                          const matchStatus =
+                            keyStatusFilter === 'all' ||
+                            (keyStatusFilter === 'active' && k.status === 'active') ||
+                            (keyStatusFilter === 'inactive' && k.status !== 'active')
+                          return matchSearch && matchStatus
+                        })
+                        .map((k) => (
                        <tr key={k.id}>
                         <td className="font-medium text-gray-900 dark:text-white">{k.name}</td>
                         <td>{k.group}</td>
@@ -366,7 +418,8 @@ export default function SiteDetail() {
                   </tbody>
                 </table>
               </div>
-            )}
+            </div>
+          )}
 
             {/* 分组 */}
             {tab === 'groups' && (
