@@ -20,6 +20,7 @@ import {
   requestTypeBadgeCls,
 } from '../components/ui'
 import { useToast, errMsg } from '../components/Toast'
+import Modal from '../components/Modal'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500]
 const DEFAULT_PAGE_SIZE = 100
@@ -135,7 +136,7 @@ function getVisiblePages(current: number, total: number): (number | string)[] {
   return pages
 }
 
-// ============ 行内详情（展开行）============
+// ============ 行详情面板（点击行内字段弹出；不再表内展开）============
 
 /** 空值判定：空串 / null / undefined（含纯空白串）都算空 */
 function isEmptyValue(v: unknown): boolean {
@@ -341,19 +342,9 @@ export default function UsageLogs() {
     }
   }
 
-  // 行内详情展开状态（key = usage log id）
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set<string>())
-  const toggleRow = useCallback((logId: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev)
-      if (next.has(logId)) {
-        next.delete(logId)
-      } else {
-        next.add(logId)
-      }
-      return next
-    })
-  }, [])
+  // 行详情面板：直接保存被点击的行对象（不依赖行 key，避免 id 缺失时所有行联动展开）
+  const [detailLog, setDetailLog] = useState<UsageLog | null>(null)
+  const closeDetail = useCallback(() => setDetailLog(null), [])
 
   // 加载站点信息
   useEffect(() => {
@@ -581,7 +572,8 @@ export default function UsageLogs() {
           </h1>
         </div>
         <p className="mt-1 text-sm text-muted">
-          站点用量日志（Token 明细含缓存读/写，延迟含首字与总耗时；currency 仅标明不折算）
+          站点用量日志（Token 明细含缓存读/写，延迟含首字与总耗时；currency 仅标明不折算）；
+          点击任意行的任意字段可弹出该行完整详情面板
         </p>
       </div>
 
@@ -951,13 +943,12 @@ export default function UsageLogs() {
               </tr>
             </thead>
             <tbody>
-              {logs.map((l) => (
-                <Fragment key={l.id}>
+              {logs.map((l, rowIdx) => (
+                <Fragment key={l.id || `row-${rowIdx}`}>
                   <tr
-                    className={`cursor-pointer ${
-                      expandedRows.has(l.id) ? 'bg-gray-50 dark:bg-dark-800/40' : ''
-                    }`}
-                    onClick={() => toggleRow(l.id)}
+                    className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-dark-800/40"
+                    title="点击查看该行详情"
+                    onClick={() => setDetailLog(l)}
                   >
                   {visibleColumns.map((col, colIdx) => {
                     const ft = l.first_token_ms ?? null
@@ -1016,7 +1007,8 @@ export default function UsageLogs() {
                           <div className="flex items-center gap-1">
                             <span
                               className="font-mono text-xs"
-                              title={l.api_key_mask || undefined}
+                              title={l.api_key_mask ? `${l.api_key_mask}（双击复制）` : undefined}
+                              onClick={(e) => e.stopPropagation()}
                               onDoubleClick={() => l.api_key_mask && copyKey(l.api_key_mask)}
                             >
                               {l.api_key_mask || '—'}
@@ -1205,14 +1197,15 @@ export default function UsageLogs() {
                             <button
                               type="button"
                               className="mt-0.5 shrink-0 text-[10px] leading-none text-gray-400 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-gray-200"
-                              aria-expanded={expandedRows.has(l.id)}
-                              aria-label={expandedRows.has(l.id) ? '收起该行详情' : '展开该行详情'}
+                              aria-haspopup="dialog"
+                              aria-label="查看该行详情"
+                              title="查看该行详情"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                toggleRow(l.id)
+                                setDetailLog(l)
                               }}
                             >
-                              {expandedRows.has(l.id) ? '▾' : '▸'}
+                              ▸
                             </button>
                             <div className="min-w-0 flex-1">{content}</div>
                           </div>
@@ -1223,13 +1216,6 @@ export default function UsageLogs() {
                     )
                   })}
                 </tr>
-                {expandedRows.has(l.id) && (
-                  <tr className="bg-gray-50/70 dark:bg-dark-800/30">
-                    <td colSpan={visibleColumns.length} className="px-4 py-4">
-                      <UsageLogDetail log={l} />
-                    </td>
-                  </tr>
-                )}
                 </Fragment>
               ))}
               {logs.length === 0 && !loading && (
@@ -1339,6 +1325,58 @@ export default function UsageLogs() {
           </nav>
         </div>
       )}
+
+      {/* 行详情面板：点击某行的任意字段弹出（替代原行内展开，避免 id 缺失时所有行联动） */}
+      <Modal
+        open={detailLog !== null}
+        onClose={closeDetail}
+        width="max-w-5xl"
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>调用详情</span>
+            {detailLog && (
+              <>
+                <span className="font-mono text-xs font-normal text-gray-500 dark:text-dark-300">
+                  {fmtText(detailLog.model_name)}
+                </span>
+                <span className="text-xs font-normal tabular-nums text-gray-400 dark:text-dark-400">
+                  {formatDateTimeFull(detailLog.ts)}
+                </span>
+              </>
+            )}
+          </span>
+        }
+        footer={
+          <button type="button" className="btn btn-secondary" onClick={closeDetail}>
+            关闭
+          </button>
+        }
+      >
+        {detailLog && (
+          <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className={`badge ${statusBadgeCls(detailLog.status || '')}`}>
+                {fmtText(detailLog.status)}
+              </span>
+              <span className="badge badge-muted">
+                Token {formatTokens(detailLog.total_tokens ?? 0)}
+              </span>
+              <span className="badge badge-muted">
+                首字 {formatDuration(detailLog.first_token_ms)} · 耗时{' '}
+                {formatDuration(detailLog.duration_ms)}
+              </span>
+              <span className="badge badge-muted">
+                实付 {fmtNum(detailLog.amount, 6)} {fmtText(detailLog.currency)}
+              </span>
+              <span className="badge badge-muted">Key {fmtText(detailLog.api_key_mask)}</span>
+              <span className="text-[11px] text-gray-400 dark:text-dark-400">
+                Esc / 点击遮罩关闭
+              </span>
+            </div>
+            <UsageLogDetail log={detailLog} />
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
