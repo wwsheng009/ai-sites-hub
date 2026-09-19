@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"aiclient/internal/adapter"
@@ -19,7 +20,20 @@ type statusResp struct {
 	Message    string `json:"message"`
 	Version    string `json:"version"`
 	SystemName string `json:"system_name"`
-	Start_time int64  `json:"start_time"`
+	StartTime  int64  `json:"start_time"`
+	// Data is present on a few compatible/new-api deployments which wrap the
+	// public status payload in the usual {success,message,data} envelope.
+	Data json.RawMessage `json:"data"`
+}
+
+type loginData struct {
+	AccessToken    string `json:"access_token"`
+	RefreshToken   string `json:"refresh_token"`
+	Token          string `json:"token"` // 兼容较早的 new-api 变体
+	TokenType      string `json:"token_type"`
+	AccessExpiresAt int64 `json:"access_expires_at"`
+	ExpiresAt      int64 `json:"expires_at"`
+	ExpiresIn      int64 `json:"expires_in"`
 }
 
 // Detect GET /api/status 特征：success + version/system_name 命中即给证据。
@@ -32,12 +46,38 @@ func (a *Adapter) Detect(ctx context.Context, baseURL string) (adapter.DetectRes
 
 	var st statusResp
 	code, _, err := ad.hc.DoJSON(ctx, "GET", ad.endpoint("/api/status"), nil, &st)
+	if err == nil && code == http.StatusOK {
+		// The reference new-api currently returns version/system_name at the
+		// top level.  Some forks put the same fields under data; accept both
+		// shapes so a harmless envelope change does not turn a known site into
+		// "unknown".
+		if len(st.Data) > 0 && (st.Version == "" || st.SystemName == "") {
+			var nested statusResp
+			if json.Unmarshal(st.Data, &nested) == nil {
+				if st.Version == "" {
+					st.Version = nested.Version
+				}
+				if st.SystemName == "" {
+					st.SystemName = nested.SystemName
+				}
+				if st.StartTime == 0 {
+					st.StartTime = nested.StartTime
+				}
+			}
+		}
+	}
 	if err == nil && code == http.StatusOK && (st.Version != "" || st.SystemName != "") {
 		res.Score += 8
 		res.Evidence["api_status"] = true
+		res.Evidence["success"] = st.Success
 		res.Evidence["version"] = st.Version
 		res.Evidence["system_name"] = st.SystemName
 		res.FinalURL = ad.BaseURL()
+	}
+	if err != nil {
+		res.Evidence["api_status_error"] = err.Error()
+	} else if code != http.StatusOK {
+		res.Evidence["api_status_code"] = code
 	}
 	return res, nil
 }
@@ -73,8 +113,25 @@ type userSelf struct {
 	InviterID   int    `json:"inviter_id"`
 }
 
-// Login 用户名密码登录（成功后 new-api 会种 new_api_* cookie；M2 记录 cookie 供后续请求）。
+// Login 登录认证。
+//
+// New-api has two intentionally different credential paths:
+//   - a system access token/PAT is sent as Authorization: Bearer <token>;
+//   - a username/password login returns a short-lived access_token (and, on
+//     current versions, a refresh cookie).
+//
+// The UI stores a token in Credentials.AccessToken, so token mode must not be
+// routed through the username/password-only request.
 func (a *Adapter) Login(ctx context.Context, cred adapter.Credentials) (adapter.AuthState, error) {
+	if token := credentialToken(cred); token != "" {
+		st, err := a.loginWithToken(ctx, token, cred)
+		if err == nil || cred.AuthMode != "hybrid" || cred.Username == "" || cred.Password == "" {
+			return st, err
+		}
+		// hybrid explicitly permits falling back to a password login when the
+		// long-lived token has expired/revoked.
+	}
+
 	if cred.Username == "" || cred.Password == "" {
 		return adapter.AuthState{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少用户名或密码", nil)
 	}
@@ -95,11 +152,41 @@ func (a *Adapter) Login(ctx context.Context, cred adapter.Credentials) (adapter.
 		if containsAny(env.Message, "turnstile", "验证码", "captcha") {
 			return stateErr(adapter.StateTurnstileBlocked, env.Message)
 		}
-		return stateErr(adapter.StateLoginFailed, env.Message)
+		msg := env.Message
+		if msg == "" {
+			msg = "登录失败"
+		}
+		return stateErr(adapter.StateLoginFailed, msg)
 	}
-	var self userSelf
-	_ = json.Unmarshal(env.Data, &self) // 宽松：data 可能为 null
-	st := adapter.AuthState{State: adapter.StateOK, Message: fmt.Sprintf("登录成功：user_id=%d", self.ID)}
+
+	// Current new-api returns data.access_token.  Keep parsing permissive for
+	// older forks which returned data.token or a bare string.
+	var ld loginData
+	if len(env.Data) > 0 && string(env.Data) != "null" {
+		if err := json.Unmarshal(env.Data, &ld); err != nil {
+			var bare string
+			if json.Unmarshal(env.Data, &bare) == nil {
+				ld.AccessToken = bare
+			}
+		}
+	}
+	access := ld.AccessToken
+	if access == "" {
+		access = ld.Token
+	}
+	if access == "" {
+		// A successful password response without a usable access token cannot
+		// be maintained by this non-browser client (the refresh cookie is not
+		// exposed through the adapter contract yet).
+		return stateErr(adapter.StateLoginFailed, "登录成功但响应未返回 access_token")
+	}
+	st := adapter.AuthState{
+		State:        adapter.StateOK,
+		Message:      "登录成功",
+		AccessToken:  access,
+		RefreshToken: ld.RefreshToken,
+		ExpiresHint:  loginExpiryHint(ld),
+	}
 	return st, nil
 }
 
@@ -111,28 +198,109 @@ func (a *Adapter) Refresh(ctx context.Context, cred adapter.Credentials) (adapte
 
 // Verify GET /api/user/self 轻量校验（PAT 或会话 cookie）。
 func (a *Adapter) Verify(ctx context.Context, atx adapter.AuthCtx) error {
-	token := atx.PAT
-	if token == "" {
-		token = atx.AccessToken
-	}
+	token := authToken(atx)
 	if token == "" && len(atx.Cookies) == 0 {
 		return adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	var env apiEnvelope
-	code, _, err := a.hc.DoJSON(ctx, "GET", a.endpoint("/api/user/self"), nil, &env)
+	code, _, err := a.hc.DoJSONWithHeader(ctx, "GET", a.endpoint("/api/user/self"), nil, &env, authHeaders(atx))
 	if err != nil {
 		return adapter.NewErr(adapter.CodeUpstreamError, "校验请求失败", err)
 	}
 	switch {
 	case code == http.StatusOK && env.Success:
 		return nil
-	case code == http.StatusUnauthorized || (code == http.StatusOK && !env.Success && containsAny(env.Message, "无权", "login")):
+	case code == http.StatusUnauthorized ||
+		(code == http.StatusOK && !env.Success && containsAny(env.Message, "无权", "未登录", "登录", "unauthorized", "invalid token")):
 		return adapter.NewErr(adapter.CodeUnauthorized, "登录态无效", nil)
 	case code == http.StatusForbidden:
 		return adapter.NewErr(adapter.CodeForbidden, "无权限", nil)
 	default:
-		return adapter.NewErr(adapter.CodeUpstreamError, fmt.Sprintf("校验失败，状态码 %d", code), nil)
+		msg := env.Message
+		if msg == "" {
+			msg = fmt.Sprintf("状态码 %d", code)
+		}
+		return adapter.NewErr(adapter.CodeUpstreamError, "校验失败："+msg, nil)
 	}
+}
+
+func (a *Adapter) loginWithToken(ctx context.Context, token string, cred adapter.Credentials) (adapter.AuthState, error) {
+	err := a.Verify(ctx, adapter.AuthCtx{PAT: token})
+	if err != nil {
+		state := adapter.StateLoginFailed
+		if adapter.IsCode(err, adapter.CodeUnauthorized) {
+			state = adapter.StateTokenExpired
+		}
+		return adapter.AuthState{State: state, Message: err.Error()}, err
+	}
+	st := adapter.AuthState{State: adapter.StateOK, Message: "Token 验证成功"}
+	if cred.PAT != "" {
+		st.PAT = token
+	} else {
+		st.AccessToken = token
+	}
+	return st, nil
+}
+
+func credentialToken(cred adapter.Credentials) string {
+	if strings.TrimSpace(cred.PAT) != "" {
+		return normalizeToken(cred.PAT)
+	}
+	return normalizeToken(cred.AccessToken)
+}
+
+func normalizeToken(token string) string {
+	token = strings.TrimSpace(token)
+	parts := strings.Fields(token)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return token
+}
+
+func authToken(atx adapter.AuthCtx) string {
+	if atx.PAT != "" {
+		return normalizeToken(atx.PAT)
+	}
+	return normalizeToken(atx.AccessToken)
+}
+
+func authHeaders(atx adapter.AuthCtx) map[string]string {
+	headers := make(map[string]string, 2)
+	if token := authToken(atx); token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
+	if len(atx.Cookies) > 0 {
+		values := make([]string, 0, len(atx.Cookies))
+		for _, c := range atx.Cookies {
+			if c != nil && c.Name != "" {
+				values = append(values, c.Name+"="+c.Value)
+			}
+		}
+		if len(values) > 0 {
+			headers["Cookie"] = strings.Join(values, "; ")
+		}
+	}
+	return headers
+}
+
+func loginExpiryHint(ld loginData) *time.Time {
+	var unix int64
+	switch {
+	case ld.AccessExpiresAt > 0:
+		unix = ld.AccessExpiresAt
+	case ld.ExpiresAt > 0:
+		unix = ld.ExpiresAt
+	}
+	if unix > 0 {
+		t := time.Unix(unix, 0)
+		return &t
+	}
+	if ld.ExpiresIn > 0 {
+		t := now().Add(time.Duration(ld.ExpiresIn) * time.Second)
+		return &t
+	}
+	return nil
 }
 
 func containsAny(s string, subs ...string) bool {
