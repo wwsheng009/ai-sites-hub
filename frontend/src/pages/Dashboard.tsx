@@ -11,6 +11,13 @@ const checkBadge: Record<string, string> = {
   fail: 'badge-danger',
 }
 
+/** 本地时区 YYYY-MM-DD（避免 toISOString 的 UTC 偏移） */
+function ymd(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 export default function Dashboard() {
   const toast = useToast()
   const navigate = useNavigate()
@@ -19,6 +26,10 @@ export default function Dashboard() {
   const [doctor, setDoctor] = useState<DoctorReport | null>(null)
   const [daily, setDaily] = useState<Record<string, UsageDaily[]>>({})
   const [syncStates, setSyncStates] = useState<Record<string, SyncState[]>>({})
+  // 借鉴 sub2api UserDashboardCharts：日期范围 + 粒度（day/week）可控
+  const [rangeDays, setRangeDays] = useState(7)
+  const [granularity, setGranularity] = useState<'day' | 'week'>('day')
+  const [reloadKey, setReloadKey] = useState(0)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -30,11 +41,11 @@ export default function Dashboard() {
         setAffs(a)
         setDoctor(d)
 
-        // S3：近 7 天用量趋势（跨站，currency 不合并）
+        // S3：用量趋势（跨站，currency 不合并）
         const activeSites = s.filter((st) => st.status === 'active' || st.status === 'ok')
         return Promise.all(
           activeSites.map((st) =>
-            apiListUsageDaily(st.id, { start: sevenDaysAgo(), end: today(), limit: 30 }).catch(() => []),
+            apiListUsageDaily(st.id, { start: nDaysAgo(rangeDays), end: today(), limit: rangeDays + 2 }).catch(() => []),
           ),
         ).then((results) => {
           const bySite: Record<string, UsageDaily[]> = {}
@@ -64,7 +75,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true
     }
-  }, [toast])
+  }, [toast, rangeDays, reloadKey])
 
   const byType = sites.reduce<Record<string, number>>((m, s) => {
     m[s.site_type] = (m[s.site_type] ?? 0) + 1
@@ -89,21 +100,34 @@ export default function Dashboard() {
     return new Date(Math.max(...times.map((t) => new Date(t!).getTime())))
   })()
 
-  // S3 日期辅助
-  const today = () => new Date().toISOString().slice(0, 10)
-  const sevenDaysAgo = () => {
+  // S3 日期辅助（本地时区，避免 toISOString 在 UTC+8 凌晨回退一天）
+  const today = () => ymd(new Date())
+  const nDaysAgo = (n: number) => {
     const d = new Date()
-    d.setDate(d.getDate() - 7)
-    return d.toISOString().slice(0, 10)
+    d.setDate(d.getDate() - n)
+    return ymd(d)
   }
 
-  // 汇总跨站 daily → 按日期聚合（不同 currency 不合并求和）
+  // 借鉴 sub2api UserDashboardCharts 的 granularity：按周聚合时归到当周周一
+  const bucketKey = (day: string) => {
+    if (granularity === 'day') return day
+    const d = new Date(`${day}T00:00:00`)
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+    return ymd(d)
+  }
+
+  // 汇总跨站 daily → 按日期/周聚合（不同 currency 不合并求和）
   const trendData = (() => {
     const byDate: Record<string, { date: string; sites: Record<string, { amount: number; currency: string }> }> = {}
     Object.entries(daily).forEach(([siteId, days]) => {
       days.forEach((d) => {
-        if (!byDate[d.day]) byDate[d.day] = { date: d.day, sites: {} }
-        byDate[d.day].sites[siteId] = { amount: d.amount, currency: d.currency }
+        const key = bucketKey(d.day)
+        if (!byDate[key]) byDate[key] = { date: key, sites: {} }
+        const prev = byDate[key].sites[siteId]
+        byDate[key].sites[siteId] = {
+          amount: (prev?.amount ?? 0) + d.amount,
+          currency: d.currency,
+        }
       })
     })
     return Object.values(byDate).sort((a, b) => (a.date > b.date ? 1 : -1))
@@ -112,6 +136,13 @@ export default function Dashboard() {
   // S3 增强：跨站 Token 统计（借鉴 sub2api UserDashboardStats）
   const todayTokens = Object.values(daily).flat().reduce((sum, d) => sum + d.total_tokens, 0)
   const totalAmount = Object.values(daily).flat().reduce((sum, d) => sum + d.amount, 0)
+  const totalRequests = Object.values(daily).flat().reduce((sum, d) => sum + (d.request_count ?? 0), 0)
+  const currencyCount = new Set(
+    Object.values(daily).flat().map((d) => d.currency).filter(Boolean),
+  ).size
+  const failedSyncSites = sites.filter((s) =>
+    (syncStates[s.id] || []).some((st) => st.consecutive_failures > 0),
+  ).length
 
   // 快速操作（借鉴 sub2api UserDashboardQuickActions）
   const quickActions = [
@@ -131,8 +162,8 @@ export default function Dashboard() {
 
       {error && <p className="text-error">{error}</p>}
 
-      {/* 统计卡片网格 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* 统计卡片 Row 1（借鉴 sub2api UserDashboardStats：grid-cols-2 lg:grid-cols-4） */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-primary">🌐</div>
           <div className="min-w-0">
@@ -166,20 +197,6 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="stat-card card-hover">
-          <div className="stat-icon stat-icon-secondary">🔢</div>
-          <div className="min-w-0">
-            <div className="stat-value">{formatTokens(todayTokens)}</div>
-            <div className="stat-label">近 7 天 Token 总量</div>
-          </div>
-        </div>
-        <div className="stat-card card-hover">
-          <div className="stat-icon stat-icon-danger">💵</div>
-          <div className="min-w-0">
-            <div className="stat-value text-xl">{totalAmount.toFixed(4)}</div>
-            <div className="stat-label">近 7 天消耗合计（不折算汇率）</div>
-          </div>
-        </div>
-        <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-primary">🩺</div>
           <div className="min-w-0">
             <div className="stat-value">
@@ -194,33 +211,47 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 快速操作（借鉴 sub2api UserDashboardQuickActions） */}
-      <section className="card">
-        <div className="card-header">
-          <h3 className="font-semibold text-gray-900 dark:text-white">快速操作</h3>
-        </div>
-        <div className="card-body">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {quickActions.map((a) => (
-              <Link
-                key={a.to}
-                to={a.to}
-                className="group flex flex-col items-center gap-2 rounded-xl bg-gray-50 p-4 text-center transition-all duration-200 hover:bg-gray-100 dark:bg-dark-800/50 dark:hover:bg-dark-800"
-              >
-                <span className="text-2xl">{a.icon}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{a.label}</p>
-                  <p className="text-xs text-gray-500 dark:text-dark-400">{a.desc}</p>
-                </div>
-              </Link>
-            ))}
+      {/* 统计卡片 Row 2：Token / 消耗 / 同步（借鉴 sub2api UserDashboardStats Row 2） */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-secondary">🔢</div>
+          <div className="min-w-0">
+            <div className="stat-value">{formatTokens(todayTokens)}</div>
+            <div className="stat-label">近 {rangeDays} 天 Token 总量</div>
+            <div className="text-xs text-muted">{totalRequests.toLocaleString()} 次调用</div>
           </div>
         </div>
-      </section>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-danger">💵</div>
+          <div className="min-w-0">
+            <div className="stat-value text-xl">{totalAmount.toFixed(4)}</div>
+            <div className="stat-label">近 {rangeDays} 天消耗合计（不折算汇率）</div>
+            <div className="text-xs text-muted">{currencyCount} 种币种，不做汇率合并</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-success">🔄</div>
+          <div className="min-w-0">
+            <div className="stat-value text-xl">{lastSyncAt ? timeDisplay(lastSyncAt.toISOString()) : '—'}</div>
+            <div className="stat-label">上次同步时间</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-warning">⚠️</div>
+          <div className="min-w-0">
+            <div className="stat-value">{failedSyncSites}</div>
+            <div className="stat-label">同步异常站点</div>
+            <div className="text-xs text-muted">
+              {failedSyncSites > 0 ? '存在连续失败，建议前往作业页查看' : '全部同步域正常'}
+            </div>
+          </div>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      {/* 底部：返利概览（2/3）+ 快速操作（1/3），借鉴 sub2api DashboardView 的 lg:grid-cols-3 */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         {/* 返利概览 */}
-        <section className="card">
+        <section className="card xl:col-span-2">
           <div className="card-header flex items-center justify-between">
             <h3 className="font-semibold text-gray-900 dark:text-white">返利概览</h3>
             <Link to="/affiliates" className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
@@ -270,8 +301,34 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* 系统体检 */}
+        {/* 快速操作（借鉴 sub2api UserDashboardQuickActions：竖向行卡片 + chevron） */}
         <section className="card">
+          <div className="card-header">
+            <h3 className="font-semibold text-gray-900 dark:text-white">快速操作</h3>
+          </div>
+          <div className="card-body space-y-2">
+            {quickActions.map((a) => (
+              <Link
+                key={a.to}
+                to={a.to}
+                className="group flex w-full items-center gap-4 rounded-xl bg-gray-50 p-4 text-left transition-all duration-200 hover:bg-gray-100 dark:bg-dark-800/50 dark:hover:bg-dark-800"
+              >
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-2xl transition-transform group-hover:scale-105 dark:bg-primary-900/30">
+                  {a.icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{a.label}</p>
+                  <p className="text-xs text-gray-500 dark:text-dark-400">{a.desc}</p>
+                </div>
+                <span className="text-gray-400 transition-colors group-hover:text-primary-500 dark:text-dark-500">→</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* 系统体检 */}
+      <section className="card">
           <div className="card-header">
             <h3 className="font-semibold text-gray-900 dark:text-white">系统体检（doctor）</h3>
           </div>
@@ -296,13 +353,43 @@ export default function Dashboard() {
             )}
           </div>
         </section>
-      </div>
-
-      {/* S3：近 7 天用量趋势（按站点分组，currency 不合并） */}
-      <section className="card">
-        <div className="card-header flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 dark:text-white">近 7 天用量趋势</h3>
-          <span className="text-xs text-muted">不同站点/币种不合并求和</span>
+      {/* 图表区：趋势（2/3）+ 站点类型分布（1/3），借鉴 sub2api UserDashboardCharts 范围/粒度控制 */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <section className="card xl:col-span-2">
+        <div className="card-header flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold text-gray-900 dark:text-white">近 {rangeDays} 天用量趋势</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="input py-1 text-xs"
+              value={rangeDays}
+              onChange={(e) => setRangeDays(Number(e.target.value))}
+              aria-label="时间范围"
+            >
+              <option value={7}>最近 7 天</option>
+              <option value={14}>最近 14 天</option>
+              <option value={30}>最近 30 天</option>
+            </select>
+            <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 dark:border-dark-700">
+              <button
+                type="button"
+                className={`px-2.5 py-1 text-xs ${granularity === 'day' ? 'bg-primary-500 text-white' : 'text-muted hover:bg-gray-50 dark:hover:bg-dark-800'}`}
+                onClick={() => setGranularity('day')}
+              >
+                按天
+              </button>
+              <button
+                type="button"
+                className={`px-2.5 py-1 text-xs ${granularity === 'week' ? 'bg-primary-500 text-white' : 'text-muted hover:bg-gray-50 dark:hover:bg-dark-800'}`}
+                onClick={() => setGranularity('week')}
+              >
+                按周
+              </button>
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setReloadKey((k) => k + 1)}>
+              刷新
+            </button>
+          </div>
+          <span className="w-full text-xs text-muted">不同站点/币种不合并求和，点击柱状图可跳转用量日志</span>
         </div>
         <div className="card-body">
           {trendData.length === 0 ? (
@@ -325,7 +412,11 @@ export default function Dashboard() {
                         key={siteId}
                         className="flex flex-col items-center"
                         title={`${site?.name || siteId}: ${info.amount} ${info.currency}`}
-                        onClick={() => navigate(`/sites/${siteId}/usage/logs?start=${d.date}&end=${d.date}`)}
+                        onClick={() => {
+                          const end = new Date(`${d.date}T00:00:00`)
+                          end.setDate(end.getDate() + (granularity === 'week' ? 6 : 0))
+                          navigate(`/sites/${siteId}/usage/logs?start=${d.date}&end=${ymd(end)}`)
+                        }}
                         style={{ cursor: 'pointer' }}
                       >
                         <div
@@ -347,7 +438,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* 站点类型分布 */}
+      {/* 站点类型分布（图表区右列，与 sub2api charts 的 1/3 列对应） */}
       <section className="card">
         <div className="card-header">
           <h3 className="font-semibold text-gray-900 dark:text-white">站点类型分布</h3>
@@ -366,6 +457,7 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+      </div>
     </div>
   )
 }
