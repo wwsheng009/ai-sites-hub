@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { get } from '../api/client'
 import type { DoctorReport, Site, SiteAffiliate } from '../types'
+
+const checkBadge: Record<string, string> = {
+  ok: 'badge-success',
+  warn: 'badge-warning',
+  fail: 'badge-danger',
+}
 
 export default function Dashboard() {
   const [sites, setSites] = useState<Site[]>([])
@@ -9,11 +16,7 @@ export default function Dashboard() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([
-      get<Site[]>('/sites'),
-      get<SiteAffiliate[]>('/affiliates'),
-      get<DoctorReport>('/doctor'),
-    ])
+    Promise.all([get<Site[]>('/sites'), get<SiteAffiliate[]>('/affiliates'), get<DoctorReport>('/doctor')])
       .then(([s, a, d]) => {
         setSites(s)
         setAffs(a)
@@ -27,69 +30,151 @@ export default function Dashboard() {
     return m
   }, {})
 
+  const totalAvailable = affs.reduce((sum, a) => sum + (a.available ?? 0), 0)
+  const okCount = sites.filter((s) => s.status === 'ok' || s.status === 'active').length
+
   return (
-    <div>
-      <h1 className="page-title">概览</h1>
-      {error && <p className="error-text">{error}</p>}
-
-      <div className="panel">
-        <h3>站点统计</h3>
-        <p className="muted">
-          共 {sites.length} 个站点
-          {Object.entries(byType).map(([t, n]) => ` · ${t}: ${n}`).join('')}
-        </p>
+    <div className="space-y-6">
+      {/* 页头 */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">概览</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-dark-400">站点、凭据与返利的集中监控面板</p>
       </div>
 
-      <div className="panel">
-        <h3>返利概览（FR-10）</h3>
-        {affs.length === 0 ? (
-          <p className="muted">暂无返利数据；同步站点后自动获取（AffiliateInfo）。</p>
-        ) : (
-          <table className="data">
-            <thead>
-              <tr>
-                <th>站点</th>
-                <th>可用余额</th>
-                <th>累计</th>
-                <th>邀请人数</th>
-                <th>更新时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {affs.map((a) => (
-                <tr key={a.id}>
-                  <td>{sites.find((s) => s.id === a.site_id)?.name ?? a.site_id}</td>
-                  <td>{a.available ?? '—'}</td>
-                  <td>{a.history ?? '—'}</td>
-                  <td>{a.invitee_count ?? '—'}</td>
-                  <td className="muted">{a.last_sync_at ?? '—'}</td>
-                </tr>
+      {error && <p className="text-error">{error}</p>}
+
+      {/* 统计卡片网格 */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-primary">🌐</div>
+          <div className="min-w-0">
+            <div className="stat-value">{sites.length}</div>
+            <div className="stat-label">站点总数</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-success">✅</div>
+          <div className="min-w-0">
+            <div className="stat-value">{okCount}</div>
+            <div className="stat-label">正常站点</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-warning">💰</div>
+          <div className="min-w-0">
+            <div className="stat-value truncate">{totalAvailable}</div>
+            <div className="stat-label">返利可用余额合计</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-danger">🩺</div>
+          <div className="min-w-0">
+            <div className="stat-value">
+              {doctor ? (
+                <span className={`badge ${checkBadge[doctor.overall] ?? 'badge-muted'}`}>{doctor.overall}</span>
+              ) : (
+                <span className="spinner inline-block" />
+              )}
+            </div>
+            <div className="stat-label">系统体检状态</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {/* 返利概览 */}
+        <section className="card">
+          <div className="card-header flex items-center justify-between">
+            <h3 className="font-semibold text-gray-900 dark:text-white">返利概览</h3>
+            <Link to="/affiliates" className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
+              前往返利中心 →
+            </Link>
+          </div>
+          <div className="card-body p-0">
+            {affs.length === 0 ? (
+              <div className="empty-state">
+                <span className="text-3xl">💰</span>
+                <span className="empty-state-title">暂无返利数据</span>
+                <span className="empty-state-desc">同步站点后自动获取（AffiliateInfo）</span>
+              </div>
+            ) : (
+              <div className="table-container border-0">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>站点</th>
+                      <th>可用余额</th>
+                      <th>累计</th>
+                      <th>邀请人数</th>
+                      <th>更新时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {affs.map((a) => (
+                      <tr key={a.id}>
+                        <td className="font-medium text-gray-900 dark:text-white">
+                          {sites.find((s) => s.id === a.site_id)?.name ?? a.site_id}
+                        </td>
+                        <td>{a.available ?? '—'}</td>
+                        <td>{a.history ?? '—'}</td>
+                        <td>{a.invitee_count ?? '—'}</td>
+                        <td className="text-muted whitespace-nowrap">{a.last_sync_at ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 系统体检 */}
+        <section className="card">
+          <div className="card-header">
+            <h3 className="font-semibold text-gray-900 dark:text-white">系统体检（doctor）</h3>
+          </div>
+          <div className="card-body">
+            {doctor ? (
+              <ul className="space-y-3">
+                {doctor.checks.map((c) => (
+                  <li key={c.name} className="flex items-start gap-3">
+                    <span className={`badge ${checkBadge[c.status] ?? 'badge-muted'} mt-0.5`}>{c.status}</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">{c.name}</div>
+                      <div className="text-xs text-gray-500 dark:text-dark-400">{c.detail}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex items-center gap-3 py-8">
+                <span className="spinner" />
+                <span className="text-sm text-muted">体检报告加载中…</span>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* 站点类型分布 */}
+      <section className="card">
+        <div className="card-header">
+          <h3 className="font-semibold text-gray-900 dark:text-white">站点类型分布</h3>
+        </div>
+        <div className="card-body">
+          {sites.length === 0 ? (
+            <p className="text-sm text-muted">暂无站点，前往「站点管理」添加第一个站点。</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(byType).map(([t, n]) => (
+                <span key={t} className={`badge ${t === 'unknown' ? 'badge-muted' : 'badge-primary'} px-3 py-1 text-sm`}>
+                  {t} · {n}
+                </span>
               ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <div className="panel">
-        <h3>系统体检（doctor）</h3>
-        {doctor ? (
-          <>
-            <p>
-              overall: <span className={`badge ${doctor.overall === 'ok' ? 'ok' : doctor.overall === 'warn' ? 'warn' : 'fail'}`}>{doctor.overall}</span>
-            </p>
-            <ul>
-              {doctor.checks.map((c) => (
-                <li key={c.name}>
-                  <span className={`badge ${c.status === 'ok' ? 'ok' : c.status === 'warn' ? 'warn' : 'fail'}`}>{c.status}</span>{' '}
-                  <strong>{c.name}</strong> — {c.detail}
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <p className="muted">加载中…</p>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   )
 }
