@@ -27,13 +27,13 @@ type statusResp struct {
 }
 
 type loginData struct {
-	AccessToken    string `json:"access_token"`
-	RefreshToken   string `json:"refresh_token"`
-	Token          string `json:"token"` // 兼容较早的 new-api 变体
-	TokenType      string `json:"token_type"`
-	AccessExpiresAt int64 `json:"access_expires_at"`
-	ExpiresAt      int64 `json:"expires_at"`
-	ExpiresIn      int64 `json:"expires_in"`
+	AccessToken     string `json:"access_token"`
+	RefreshToken    string `json:"refresh_token"`
+	Token           string `json:"token"` // 兼容较早的 new-api 变体
+	TokenType       string `json:"token_type"`
+	AccessExpiresAt int64  `json:"access_expires_at"`
+	ExpiresAt       int64  `json:"expires_at"`
+	ExpiresIn       int64  `json:"expires_in"`
 }
 
 // Detect GET /api/status 特征：success + version/system_name 命中即给证据。

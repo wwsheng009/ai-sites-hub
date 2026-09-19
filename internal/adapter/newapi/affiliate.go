@@ -81,9 +81,7 @@ func (a *Adapter) TransferAffiliate(ctx context.Context, atx adapter.AuthCtx, am
 
 	var env apiEnvelope
 	code, _, err := a.hc.DoJSONWithHeader(ctx, "POST", a.endpoint("/api/user/aff_transfer"),
-		map[string]int64{"quota": quota}, &env, map[string]string{
-			"Authorization": "Bearer " + pickToken(atx),
-		})
+		map[string]int64{"quota": quota}, &env, authHeaders(atx))
 	if err != nil {
 		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUpstreamError, "划转请求失败", err)
 	}
@@ -138,7 +136,7 @@ func (a *Adapter) Checkin(ctx context.Context, atx adapter.AuthCtx) (adapter.Che
 	}
 	var env apiEnvelope
 	code, _, err := a.hc.DoJSONWithHeader(ctx, "POST", a.endpoint("/api/user/checkin"), nil, &env,
-		map[string]string{"Authorization": "Bearer " + pickToken(atx)})
+		authHeaders(atx))
 	if err != nil {
 		return adapter.CheckinResult{}, adapter.NewErr(adapter.CodeUpstreamError, "签到请求失败", err)
 	}
@@ -163,14 +161,6 @@ func (a *Adapter) Checkin(ctx context.Context, atx adapter.AuthCtx) (adapter.Che
 		QuotaAwarded: a.quotaToUSD(data.QuotaAwarded),
 		Message:      fmt.Sprintf("签到成功 date=%s", data.CheckinDate),
 	}, nil
-}
-
-// pickToken PAT 优先。
-func pickToken(atx adapter.AuthCtx) string {
-	if atx.PAT != "" {
-		return atx.PAT
-	}
-	return atx.AccessToken
 }
 
 func apiErrResp(code int, msg, action string) error {

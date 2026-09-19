@@ -27,7 +27,7 @@ type UsageLogOut struct {
 func (a *API) ListUsageLogs(c *gin.Context) {
 	siteID := c.Param("id")
 	since := parseDay(c.Query("start"))
-	until := parseDay(c.Query("end"))
+	until := parseDayEnd(c.Query("end"))
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit <= 0 {
 		limit = 200
@@ -115,4 +115,16 @@ func parseDay(s string) time.Time {
 	}
 	t, _ := time.Parse("2006-01-02", s)
 	return t
+}
+
+// parseDayEnd 解析 YYYY-MM-DD 为当日结束（23:59:59），用于闭区间查询。
+func parseDayEnd(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse("2006-01-02", s)
+	if t.IsZero() {
+		return time.Time{}
+	}
+	return t.Add(24*time.Hour - time.Second)
 }

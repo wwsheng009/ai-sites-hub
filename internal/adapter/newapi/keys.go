@@ -204,29 +204,17 @@ func (a *Adapter) fetchSelf(ctx context.Context, atx adapter.AuthCtx) (userSelf,
 
 // ---- 共用 ----
 
-// apiGet 带 PAT/token 的 GET（M2 骨架：Authorization 头在请求层注入封装于此）。
+// apiGet 带 PAT/token/cookie 的 GET。
 func (a *Adapter) apiGet(ctx context.Context, atx adapter.AuthCtx, url string) (apiEnvelope, int, error) {
-	token := atx.PAT
-	if token == "" {
-		token = atx.AccessToken
-	}
 	var env apiEnvelope
-	code, _, err := a.hc.DoJSONWithHeader(ctx, "GET", url, nil, &env, map[string]string{
-		"Authorization": "Bearer " + token,
-	})
+	code, _, err := a.hc.DoJSONWithHeader(ctx, "GET", url, nil, &env, authHeaders(atx))
 	return env, code, err
 }
 
-// apiPost 带 PAT/token 的 POST（RevealKey 用）。
+// apiPost 带 PAT/token/cookie 的 POST（RevealKey 用）。
 func (a *Adapter) apiPost(ctx context.Context, atx adapter.AuthCtx, url string, body any) (apiEnvelope, int, error) {
-	token := atx.PAT
-	if token == "" {
-		token = atx.AccessToken
-	}
 	var env apiEnvelope
-	code, _, err := a.hc.DoJSONWithHeader(ctx, "POST", url, body, &env, map[string]string{
-		"Authorization": "Bearer " + token,
-	})
+	code, _, err := a.hc.DoJSONWithHeader(ctx, "POST", url, body, &env, authHeaders(atx))
 	return env, code, err
 }
 

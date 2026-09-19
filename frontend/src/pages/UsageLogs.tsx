@@ -123,6 +123,7 @@ export default function UsageLogs() {
   const [site, setSite] = useState<Site | null>(null)
   const [logs, setLogs] = useState<UsageLog[]>([])
   const [daily, setDaily] = useState<UsageDaily[]>([])
+  const [statsDaily, setStatsDaily] = useState<UsageDaily[]>([])
   const [loading, setLoading] = useState(true)
   const [dailyLoading, setDailyLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -205,11 +206,13 @@ export default function UsageLogs() {
   }, [id, start, end, model, pageSize])
 
   // 加载日聚合数据（用于统计卡片 + 趋势）
+  // 统计卡片使用全量数据（最近 30 天），趋势图使用过滤后的日期范围
   const loadDaily = useCallback(() => {
     if (!id) return
     setDailyLoading(true)
     const s = start || sevenDaysAgo()
     const e = end || today()
+    // 趋势图：使用过滤后的日期范围
     apiListUsageDaily(id, { start: s, end: e, limit: 30 })
       .then((data) => {
         setDaily(data)
@@ -218,6 +221,18 @@ export default function UsageLogs() {
       .catch(() => {
         setDailyLoading(false)
       })
+    // 统计卡片：使用最近 30 天的全量数据
+    const statsStart = new Date()
+    statsStart.setDate(statsStart.getDate() - 30)
+    apiListUsageDaily(id, {
+      start: formatDateLocal(statsStart),
+      end: today(),
+      limit: 30,
+    })
+      .then((data) => {
+        setStatsDaily(data)
+      })
+      .catch(() => {})
   }, [id, start, end])
 
   useEffect(() => {
@@ -248,15 +263,15 @@ export default function UsageLogs() {
     setPage(1)
   }
 
-  // 统计卡片数据（从 daily 数据聚合，借鉴 sub2api UsageStatsCards）
+  // 统计卡片数据（从 statsDaily 全量数据聚合，借鉴 sub2api UsageStatsCards）
   const stats = useMemo(() => {
-    const totalRequests = daily.reduce((sum, d) => sum + (d.total_tokens > 0 ? 1 : 0), 0)
-    const totalTokens = daily.reduce((sum, d) => sum + d.total_tokens, 0)
-    const totalPrompt = daily.reduce((sum, d) => sum + d.prompt_tokens, 0)
-    const totalCompletion = daily.reduce((sum, d) => sum + d.completion_tokens, 0)
-    const totalAmount = daily.reduce((sum, d) => sum + d.amount, 0)
+    const totalRequests = statsDaily.reduce((sum, d) => sum + (d.total_tokens > 0 ? 1 : 0), 0)
+    const totalTokens = statsDaily.reduce((sum, d) => sum + d.total_tokens, 0)
+    const totalPrompt = statsDaily.reduce((sum, d) => sum + d.prompt_tokens, 0)
+    const totalCompletion = statsDaily.reduce((sum, d) => sum + d.completion_tokens, 0)
+    const totalAmount = statsDaily.reduce((sum, d) => sum + d.amount, 0)
     return { totalRequests, totalTokens, totalPrompt, totalCompletion, totalAmount }
-  }, [daily])
+  }, [statsDaily])
 
   // 趋势图数据（按日期排序）
   const trendData = useMemo(() => {

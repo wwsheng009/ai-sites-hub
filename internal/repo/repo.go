@@ -843,10 +843,10 @@ func (r *Repo) ListUsageDaily(ctx context.Context, siteID, since, until, modelNa
 	}
 	tx := r.db.WithContext(ctx).Model(&model.UsageDaily{}).Where("site_id = ?", siteID)
 	if since != "" {
-		tx = tx.Where("day >= ?", since)
+		tx = tx.Where("date(day) >= ?", since)
 	}
 	if until != "" {
-		tx = tx.Where("day <= ?", until)
+		tx = tx.Where("date(day) <= ?", until)
 	}
 	if modelName != "" {
 		tx = tx.Where("model_name = ?", modelName)
