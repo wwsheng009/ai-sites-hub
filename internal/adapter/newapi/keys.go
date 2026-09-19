@@ -101,6 +101,28 @@ func (a *Adapter) ListKeys(ctx context.Context, atx adapter.AuthCtx, page adapte
 	return adapter.KeyPage{Items: out, Total: int(total), Page: maxInt(page.Page, 1), HasNext: false}, nil
 }
 
+// RevealKey 调用 upstream POST /api/token/:id/key 获取完整 key（CriticalRateLimit）。
+func (a *Adapter) RevealKey(ctx context.Context, atx adapter.AuthCtx, remoteKeyID string) (string, error) {
+	if atx.PAT == "" && atx.AccessToken == "" {
+		return "", adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	}
+	url := fmt.Sprintf("%s/api/token/%s/key", a.BaseURL(), remoteKeyID)
+	env, code, err := a.apiPost(ctx, atx, url, nil)
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK || !env.Success {
+		return "", apiErr(env, code, "获取完整 key")
+	}
+	var out struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(env.Data, &out); err != nil {
+		return "", fmt.Errorf("解析 key 响应: %w", err)
+	}
+	return out.Key, nil
+}
+
 // ListGroups 用户可用分组 + 公开倍率。
 func (a *Adapter) ListGroups(ctx context.Context, atx adapter.AuthCtx) ([]adapter.Group, error) {
 	if atx.PAT == "" && atx.AccessToken == "" {
@@ -190,6 +212,19 @@ func (a *Adapter) apiGet(ctx context.Context, atx adapter.AuthCtx, url string) (
 	}
 	var env apiEnvelope
 	code, _, err := a.hc.DoJSONWithHeader(ctx, "GET", url, nil, &env, map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	return env, code, err
+}
+
+// apiPost 带 PAT/token 的 POST（RevealKey 用）。
+func (a *Adapter) apiPost(ctx context.Context, atx adapter.AuthCtx, url string, body any) (apiEnvelope, int, error) {
+	token := atx.PAT
+	if token == "" {
+		token = atx.AccessToken
+	}
+	var env apiEnvelope
+	code, _, err := a.hc.DoJSONWithHeader(ctx, "POST", url, body, &env, map[string]string{
 		"Authorization": "Bearer " + token,
 	})
 	return env, code, err

@@ -219,6 +219,8 @@ type SiteAdapter interface {
 	ListKeys(ctx context.Context, a AuthCtx, page Page) (KeyPage, error)
 	ListGroups(ctx context.Context, a AuthCtx) ([]Group, error)
 	Quota(ctx context.Context, a AuthCtx) (AccountQuota, error)
+	// RevealKey 按需获取完整 key 值（CriticalRateLimit，仅手动触发，不进入同步）。
+	RevealKey(ctx context.Context, a AuthCtx, remoteKeyID string) (string, error)
 	// UsageLogs 游标增量（newapi /api/log/self?start_timestamp；sub2api /api/v1/usage?start_date）。
 	UsageLogs(ctx context.Context, a AuthCtx, since time.Time) ([]UsageLog, error)
 

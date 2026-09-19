@@ -67,6 +67,18 @@ func (a *API) ListSyncStates(c *gin.Context) {
 	OK(c, states)
 }
 
+// RevealKey POST /api/v1/sites/:id/keys/:keyId/reveal — 按需获取完整 key（FR-4.2）。
+func (a *API) RevealKey(c *gin.Context) {
+	siteID := c.Param("id")
+	keyID := c.Param("keyId")
+	key, err := a.Svc.RevealKey(c.Request.Context(), siteID, keyID)
+	if err != nil {
+		Fail(c, err)
+		return
+	}
+	OK(c, gin.H{"key": key})
+}
+
 // ListUsageDaily GET /api/v1/sites/:id/usage/daily?start=&end=&model=&limit=
 func (a *API) ListUsageDaily(c *gin.Context) {
 	siteID := c.Param("id")

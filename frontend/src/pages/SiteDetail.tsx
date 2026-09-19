@@ -15,6 +15,7 @@ import {
   apiListTransfers,
   apiPutAffiliateRule,
   apiPutCredentials,
+  apiRevealKey,
   apiSyncSite,
   apiTransferAffiliate,
   apiUpdateSite,
@@ -36,6 +37,8 @@ export default function SiteDetail() {
   const [site, setSite] = useState<Site | null>(null)
   const [auth, setAuth] = useState<SiteCredentialState | null>(null)
   const [keys, setKeys] = useState<SiteKey[]>([])
+  // FR-4.2：revealed key 临时存放内存（不落库）
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({})
   const [groups, setGroups] = useState<SiteGroup[]>([])
   const [aff, setAff] = useState<SiteAffiliateOut | null>(null)
   const [invitees, setInvitees] = useState<AffiliateInvitee[]>([])
@@ -277,31 +280,69 @@ export default function SiteDetail() {
                       <th>状态</th>
                       <th>已用 / 上限</th>
                       <th>来源</th>
+                      <th>操作</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {keys.map((k) => (
-                      <tr key={k.id}>
+                   <tbody>
+                     {keys.map((k) => (
+                       <tr key={k.id}>
                         <td className="font-medium text-gray-900 dark:text-white">{k.name}</td>
                         <td>{k.group}</td>
-                        <td>
+                         <td>
                           <span className={`badge ${k.status === 'active' ? 'badge-success' : 'badge-muted'}`}>{k.status}</span>
                         </td>
-                        <td>
-                          {k.unlimited ? (
+                         <td>
+                           {k.unlimited ? (
                             <span className="badge badge-primary">无限</span>
-                          ) : (
-                            <span className="font-mono text-xs">
+                           ) : (
+                             <span className="font-mono text-xs">
                               {k.quota_used ?? '—'} / {k.quota_limit ?? '—'}
                             </span>
                           )}
                         </td>
                         <td className="text-muted">{k.key_source}</td>
-                      </tr>
-                    ))}
+                        <td>
+                           {revealedKeys[k.id] ? (
+                             <button
+                               className="btn btn-ghost btn-xs font-mono"
+                               onClick={async () => {
+                                 try {
+                                   await navigator.clipboard.writeText(revealedKeys[k.id])
+                                   toast.success('已复制到剪贴板')
+                                 } catch {
+                                   toast.error('复制失败')
+                                 }
+                               }}
+                               title={revealedKeys[k.id]}
+                             >
+                               {revealedKeys[k.id].slice(0, 12)}… 复制
+                             </button>
+                           ) : (
+                             <button
+                               className="btn btn-ghost btn-xs btn-outline"
+                               onClick={async () => {
+                                 setBusy(k.id)
+                                 try {
+                                   const res = await apiRevealKey(id, k.remote_key_id)
+                                   setRevealedKeys((prev) => ({ ...prev, [k.id]: res.key }))
+                                   toast.success('key 已获取')
+                                 } catch (e) {
+                                   toast.error(errMsg(e))
+                                 } finally {
+                                   setBusy('')
+                                 }
+                               }}
+                               disabled={busy === k.id}
+                             >
+                               {busy === k.id ? '获取中…' : '获取 key'}
+                             </button>
+                           )}
+                         </td>
+                       </tr>
+                     ))}
                     {keys.length === 0 && (
                       <tr>
-                        <td colSpan={5}>
+                        <td colSpan={6}>
                           <div className="empty-state">
                             <span className="text-3xl">🔑</span>
                             <span className="empty-state-title">暂无 Keys</span>

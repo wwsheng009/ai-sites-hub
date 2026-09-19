@@ -112,6 +112,29 @@ func (a *Adapter) ListKeys(ctx context.Context, atx adapter.AuthCtx, page adapte
 	return adapter.KeyPage{Items: items, Total: int(out.Total), Page: out.Page, HasNext: false}, nil
 }
 
+// RevealKey 调用 upstream GET /api/v1/keys/:id 获取完整 key 值。
+func (a *Adapter) RevealKey(ctx context.Context, atx adapter.AuthCtx, remoteKeyID string) (string, error) {
+	if atx.AccessToken == "" {
+		return "", adapter.NewErr(adapter.CodeUnauthorized, "缺少 access token", nil)
+	}
+	var env apiEnvelope
+	url := fmt.Sprintf("%s/api/v1/keys/%s", a.BaseURL(), remoteKeyID)
+	status, _, err := a.hc.DoJSONWithHeader(ctx, "GET", url, nil, &env, authHeaders(atx.AccessToken))
+	if err != nil {
+		return "", adapter.NewErr(adapter.CodeUpstreamError, "获取 key 详情失败", err)
+	}
+	if status != http.StatusOK || env.Code != 0 {
+		return "", statusErr(status, "获取 key 详情")
+	}
+	var out struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(env.Data, &out); err != nil {
+		return "", fmt.Errorf("解析 key 响应: %w", err)
+	}
+	return out.Key, nil
+}
+
 // ListGroups 用户可绑分组（Bearer 认证；available=status==active）。
 func (a *Adapter) ListGroups(ctx context.Context, atx adapter.AuthCtx) ([]adapter.Group, error) {
 	if atx.AccessToken == "" {

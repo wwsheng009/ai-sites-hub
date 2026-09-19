@@ -49,6 +49,7 @@ func SetupRouter(svc *service.Services) *gin.Engine {
 	v1.GET("/sites/:id/usage/daily", api.ListUsageDaily)
 	v1.POST("/sites/:id/usage/daily", api.AggregateUsageDaily)
 	v1.GET("/sites/:id/sync-states", api.ListSyncStates)
+	v1.POST("/sites/:id/keys/:keyId/reveal", api.RevealKey)
 
 	// models square（S4）
 	v1.GET("/models", api.ListSiteModels)

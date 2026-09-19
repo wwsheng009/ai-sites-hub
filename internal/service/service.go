@@ -669,6 +669,24 @@ func (s *Services) ListSyncStatesBySite(ctx context.Context, siteID string) ([]m
 	return s.Repo.ListSyncStateBySite(ctx, siteID)
 }
 
+// RevealKey 按需获取上游完整 key 值（FR-4.2；仅手动触发，不落库）。
+func (s *Services) RevealKey(ctx context.Context, siteID, remoteKeyID string) (string, error) {
+	site, err := s.Repo.GetSite(ctx, siteID)
+	if err != nil {
+		return "", err
+	}
+	ad, err := s.Reg.Get(adapter.Type(site.SiteType), site.BaseURL, site.ProxyURL, s.Log)
+	if err != nil {
+		return "", err
+	}
+	cred, err := s.Repo.GetCredential(ctx, siteID)
+	if err != nil {
+		return "", err
+	}
+	atx := s.AuthContext(cred)
+	return ad.RevealKey(ctx, atx, remoteKeyID)
+}
+
 // SyncUsageLog 游标增量拉取用量日志 → usage_logs 投影（S2）。
 // cursor 存于 site_sync_state.cursor（JSON {"since":"<RFC3339>"}），newapi 秒级 / sub2api 按日。
 func (s *Services) SyncUsageLog(ctx context.Context, ad adapter.SiteAdapter, atx adapter.AuthCtx, siteID string) (int, error) {

@@ -91,6 +91,10 @@ export const apiListUsageDaily = (siteId: string, q?: { start?: string; end?: st
 export const apiListSyncStates = (siteId: string) =>
   get<SyncState[]>(`/sites/${encodeURIComponent(siteId)}/sync-states`)
 
+// ---- key reveal（FR-4.2）----
+export const apiRevealKey = (siteId: string, keyId: string) =>
+  post<{ key: string }>(`/sites/${encodeURIComponent(siteId)}/keys/${encodeURIComponent(keyId)}/reveal`)
+
 // ---- models（S4）----
 export const apiListSiteModels = (limit?: number) =>
   get<SiteModel[]>(`/models${limit ? `?limit=${limit}` : ''}`)
