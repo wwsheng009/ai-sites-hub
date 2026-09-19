@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, Link } from 'react-router-dom'
+import AnnouncementBell from './AnnouncementBell'
 
 // 图标：内联 SVG（heroicons 风格），避免引入图标库依赖
 type IconProps = { className?: string }
@@ -166,6 +167,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
           <div className="text-sm font-medium text-gray-500 dark:text-dark-300">AI 站点集中管理控制台</div>
           <div className="ml-auto flex items-center gap-2">
+            <AnnouncementBell />
             <button
               type="button"
               onClick={toggle}
