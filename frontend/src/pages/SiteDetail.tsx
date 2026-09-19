@@ -47,6 +47,7 @@ export default function SiteDetail() {
   const [tab, setTab] = useState<Tab>('keys')
   const [busy, setBusy] = useState('')
   const [checkinEnabled, setCheckinEnabled] = useState(false)
+  const [credEditOpen, setCredEditOpen] = useState(false)
 
   // 编辑站点
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -670,6 +671,22 @@ export default function SiteDetail() {
                 {auth.auth_state_msg && <span className="text-xs text-muted">{auth.auth_state_msg}</span>}
               </div>
             )}
+            <button
+              className="btn btn-outline btn-sm w-full"
+              onClick={() => setCredEditOpen(true)}
+            >
+              编辑凭据
+            </button>
+          </div>
+        </div>
+
+        {/* 凭据编辑面板（弹出式） */}
+        <Modal
+          open={credEditOpen}
+          title="编辑凭据"
+          onClose={() => setCredEditOpen(false)}
+        >
+          <div className="space-y-4">
             <div>
               <label className="input-label">认证方式</label>
               <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
@@ -699,8 +716,8 @@ export default function SiteDetail() {
             <button
               className="btn btn-primary w-full"
               disabled={busy === 'cred'}
-              onClick={() =>
-                run(
+              onClick={async () => {
+                await run(
                   () =>
                     apiPutCredentials(id!, {
                       auth_mode: mode,
@@ -711,12 +728,13 @@ export default function SiteDetail() {
                   '凭据已保存',
                   'cred',
                 )
-              }
+                setCredEditOpen(false)
+              }}
             >
               {busy === 'cred' ? '保存中…' : '保存凭据'}
             </button>
           </div>
-        </div>
+        </Modal>
       </div>
 
       {/* 编辑站点 */}
