@@ -259,9 +259,9 @@ export default function SiteDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6">
         {/* 左侧：数据 Tab */}
-        <div className="xl:col-span-2">
+        <div>
           <div className="card">
             {/* Tab 栏 */}
             <div className="flex gap-1 overflow-x-auto border-b border-gray-100 px-4 pt-3 dark:border-dark-700">
@@ -666,63 +666,63 @@ export default function SiteDetail() {
             )}
           </div>
         </div>
-
-        {/* 凭据编辑面板（弹出式） */}
-        <Modal
-          open={credEditOpen}
-          title="编辑凭据"
-          onClose={() => setCredEditOpen(false)}
-        >
-          <div className="space-y-4">
-            <div>
-              <label className="input-label">认证方式</label>
-              <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
-                <option value="username_password">账号密码</option>
-                <option value="token">Token / PAT</option>
-                <option value="hybrid">混合</option>
-              </select>
-            </div>
-            {(mode === 'username_password' || mode === 'hybrid') && (
-              <>
-                <div>
-                  <label className="input-label">用户名</label>
-                  <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} />
-                </div>
-                <div>
-                  <label className="input-label">密码</label>
-                  <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                </div>
-              </>
-            )}
-            {(mode === 'token' || mode === 'hybrid') && (
-              <div>
-                <label className="input-label">Token / PAT</label>
-                <input className="input" type="password" value={token} onChange={(e) => setToken(e.target.value)} />
-              </div>
-            )}
-            <button
-              className="btn btn-primary w-full"
-              disabled={busy === 'cred'}
-              onClick={async () => {
-                await run(
-                  () =>
-                    apiPutCredentials(id!, {
-                      auth_mode: mode,
-                      username,
-                      password: mode === 'token' ? '' : password,
-                      access_token: token,
-                    }),
-                  '凭据已保存',
-                  'cred',
-                )
-                setCredEditOpen(false)
-              }}
-            >
-              {busy === 'cred' ? '保存中…' : '保存凭据'}
-            </button>
-          </div>
-        </Modal>
       </div>
+
+      {/* 凭据编辑面板（弹出式） */}
+      <Modal
+        open={credEditOpen}
+        title="编辑凭据"
+        onClose={() => setCredEditOpen(false)}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="input-label">认证方式</label>
+            <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="username_password">账号密码</option>
+              <option value="token">Token / PAT</option>
+              <option value="hybrid">混合</option>
+            </select>
+          </div>
+          {(mode === 'username_password' || mode === 'hybrid') && (
+            <>
+              <div>
+                <label className="input-label">用户名</label>
+                <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} />
+              </div>
+              <div>
+                <label className="input-label">密码</label>
+                <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </div>
+            </>
+          )}
+          {(mode === 'token' || mode === 'hybrid') && (
+            <div>
+              <label className="input-label">Token / PAT</label>
+              <input className="input" type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+            </div>
+          )}
+          <button
+            className="btn btn-primary w-full"
+            disabled={busy === 'cred'}
+            onClick={async () => {
+              await run(
+                () =>
+                  apiPutCredentials(id!, {
+                    auth_mode: mode,
+                    username,
+                    password: mode === 'token' ? '' : password,
+                    access_token: token,
+                  }),
+                '凭据已保存',
+                'cred',
+              )
+              setCredEditOpen(false)
+            }}
+          >
+            {busy === 'cred' ? '保存中…' : '保存凭据'}
+          </button>
+        </div>
+      </Modal>
 
       {/* 编辑站点 */}
       <Modal
