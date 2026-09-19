@@ -8,6 +8,11 @@
 *.out
 coverage.*
 
+# ---- 构建产物 ----
+/dist/
+/internal/webui/dist/*
+!/internal/webui/dist/README.md
+
 # ---- 前端 ----
 frontend/node_modules/
 frontend/dist/

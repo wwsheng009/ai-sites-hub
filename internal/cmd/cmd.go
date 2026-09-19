@@ -17,9 +17,16 @@ import (
 	"aiclient/internal/httpx"
 	"aiclient/internal/logger"
 	"aiclient/internal/svcwire"
+	"aiclient/internal/webui"
 )
 
 var cfgFile string
+
+// version/buildInfo 发布构建时由 -ldflags 注入（scripts/build.ps1 -Version）。
+var (
+	version   = "0.1.0"
+	buildInfo = "dev"
+)
 
 var rootCmd = &cobra.Command{
 	Use:           "aiclient",
@@ -48,7 +55,11 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "打印版本信息",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("aiclient v0.1.0 (M2 skeleton)")
+		front := "api-only"
+		if webui.HasFrontend() {
+			front = "webui-embedded"
+		}
+		fmt.Printf("aiclient %s (%s, %s)\n", version, buildInfo, front)
 	},
 }
 
@@ -130,6 +141,7 @@ var serveCmd = &cobra.Command{
 		}
 
 		router := httpx.SetupRouter(w.Services)
+		httpx.AttachSPA(router, webui.Dist())
 		srv := &http.Server{Addr: cfg.Server.Addr, Handler: router}
 
 		errCh := make(chan error, 1)

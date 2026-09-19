@@ -28,3 +28,18 @@ go run ./cmd/aiclient doctor
 # 前端（Node 20+）
 cd frontend && npm install && npm run dev
 ```
+
+## 构建发布（前端嵌入单文件）
+
+前端构建产物可嵌入 Go 二进制，产出免部署的单文件可执行程序：
+
+```powershell
+# 一键构建：npm 构建 → 同步到 internal/webui/dist → 嵌入编译
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -WithWebUI -Version v0.1.0
+
+# 产物 dist/aiclient.exe：serve 直接托管 Web 控制台（http://127.0.0.1:8080）
+```
+
+- 不带 `-WithWebUI` 时编译默认形态（无前端嵌入，仅 Web/HTTP API/cmd），开发调试用 `go run ./cmd/aiclient serve` + `npm run dev`
+- 嵌入实现：build tag `webui_embed`（`internal/webui/embed.go` 的 `//go:embed all:dist`）；SPA 路由回退与静态缓存见 `internal/httpx/spa.go`
+- `version` 子命令可验证构建形态：`aiclient v0.1.0 (release, webui-embedded)`
