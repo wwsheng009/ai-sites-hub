@@ -48,14 +48,24 @@ type groupDTO struct {
 	Status         string  `json:"status"`
 }
 
-// affData GET /api/v1/user/aff 响应 data。
+// affData GET /api/v1/user/aff 响应 data（AffiliateDetail：概览 + 受邀用户列表）。
 type affData struct {
-	AffCode        string   `json:"aff_code"`
-	AffCount       int      `json:"aff_count"`
-	AffQuota       *float64 `json:"aff_quota"`       // 可划转返利余额
-	AffFrozenQuota *float64 `json:"aff_frozen_quota"` // 冻结中
-	AffHistory     *float64 `json:"aff_history_quota"`
-	RebatePercent  *float64 `json:"effective_rebate_rate_percent"`
+	AffCode        string              `json:"aff_code"`
+	AffCount       int                 `json:"aff_count"`
+	AffQuota       *float64            `json:"aff_quota"`        // 可划转返利余额
+	AffFrozenQuota *float64            `json:"aff_frozen_quota"` // 冻结中
+	AffHistory     *float64            `json:"aff_history_quota"`
+	RebatePercent  *float64            `json:"effective_rebate_rate_percent"`
+	Invitees       []affInviteeDTO     `json:"invitees"`
+}
+
+// affInviteeDTO invitees 列表项（email 上游服务层已 maskEmail 脱敏）。
+type affInviteeDTO struct {
+	UserID      int64      `json:"user_id"`
+	Email       string     `json:"email"`
+	Username    string     `json:"username"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	TotalRebate float64    `json:"total_rebate"`
 }
 
 // ListKeys 分页拉取 key 列表（单页封顶 500；Bearer 认证）。
@@ -159,6 +169,16 @@ func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapt
 		rebate = &v
 	}
 	count := out.AffCount
+	invitees := make([]adapter.AffiliateInvitee, 0, len(out.Invitees))
+	for _, it := range out.Invitees {
+		invitees = append(invitees, adapter.AffiliateInvitee{
+			UserID:      it.UserID,
+			Email:       it.Email,
+			Username:    it.Username,
+			CreatedAt:   it.CreatedAt,
+			TotalRebate: it.TotalRebate,
+		})
+	}
 	return adapter.AffiliateInfo{
 		AffCode:      out.AffCode,
 		RebateRate:   rebate,
@@ -166,6 +186,7 @@ func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapt
 		Frozen:       out.AffFrozenQuota,
 		History:      out.AffHistory,
 		InviteeCount: &count,
+		Invitees:     invitees,
 		Currency:     "USD",
 		UnitNote:     "站点余额单位",
 	}, nil

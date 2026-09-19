@@ -3,6 +3,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -330,6 +331,7 @@ func (r *Repo) UpsertAffiliate(ctx context.Context, a *model.SiteAffiliate) erro
 			"frozen":        a.Frozen,
 			"history":       a.History,
 			"invitee_count": a.InviteeCount,
+			"invitees":      a.Invitees,
 			"freshness":     a.Freshness,
 			"last_sync_at":  now,
 			"updated_at":    now,
@@ -360,6 +362,22 @@ func (r *Repo) ListAffiliates(ctx context.Context, siteIDs []string) ([]model.Si
 	}
 	if err := q.Find(&out).Error; err != nil {
 		return nil, fmt.Errorf("repo: 返利列表: %w", err)
+	}
+	return out, nil
+}
+
+// AffiliateInvitees 解析站点返利投影中的受邀用户列表（JSON 列）。
+func (r *Repo) AffiliateInvitees(ctx context.Context, siteID string) ([]model.SiteAffiliateInvitee, error) {
+	a, err := r.GetAffiliate(ctx, siteID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.SiteAffiliateInvitee, 0)
+	if a.Invitees == "" {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(a.Invitees), &out); err != nil {
+		return out, nil // JSON 异常不阻断详情页，返回空列表
 	}
 	return out, nil
 }

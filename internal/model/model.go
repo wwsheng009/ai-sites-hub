@@ -86,6 +86,16 @@ type SiteGroup struct {
 // TableName 表名。
 func (SiteGroup) TableName() string { return "site_groups" }
 
+// SiteAffiliateInvitee 受邀用户条目（投影 sub2api AffiliateDetail.invitees；
+// email 上游服务层已脱敏，这里原样落库）。
+type SiteAffiliateInvitee struct {
+	UserID      int64     `json:"user_id"`
+	Email       string    `json:"email"`
+	Username    string    `json:"username"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	TotalRebate float64   `json:"total_rebate"`
+}
+
 // SiteAffiliate 站点返利投影（FR-10）。
 type SiteAffiliate struct {
 	ID           string     `gorm:"column:id;primaryKey;size:36" json:"id"`
@@ -96,6 +106,7 @@ type SiteAffiliate struct {
 	Frozen       *float64   `gorm:"column:frozen" json:"frozen"`
 	History      *float64   `gorm:"column:history" json:"history"`
 	InviteeCount *int       `gorm:"column:invitee_count" json:"invitee_count"`
+	Invitees     string     `gorm:"column:invitees;not null;default:'[]'" json:"invitees"`
 	AffCfg       string     `gorm:"column:aff_cfg;not null;default:'{}'" json:"aff_cfg"`
 	Freshness    string     `gorm:"column:freshness;not null;default:'missing'" json:"freshness"`
 	LastSyncAt   *time.Time `gorm:"column:last_sync_at" json:"last_sync_at"`

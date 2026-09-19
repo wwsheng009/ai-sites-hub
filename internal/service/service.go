@@ -541,6 +541,11 @@ func (s *Services) SyncAffiliate(ctx context.Context, ad adapter.SiteAdapter, at
 		InviteeCount: info.InviteeCount,
 		Freshness:    "fresh",
 	}
+	if len(info.Invitees) > 0 {
+		if b, jerr := json.Marshal(info.Invitees); jerr == nil {
+			row.Invitees = string(b)
+		}
+	}
 	if err := s.Repo.UpsertAffiliate(ctx, row); err != nil {
 		return err
 	}
@@ -667,6 +672,11 @@ func (s *Services) PutAffiliateRule(ctx context.Context, siteID string, rule Aff
 		return err
 	}
 	return s.Repo.UpdateAffiliateCfg(ctx, siteID, string(b))
+}
+
+// SiteAffiliateInvitees 站点受邀用户列表（投影，参考 sub2api AffiliateDetail.invitees）。
+func (s *Services) SiteAffiliateInvitees(ctx context.Context, siteID string) ([]model.SiteAffiliateInvitee, error) {
+	return s.Repo.AffiliateInvitees(ctx, siteID)
 }
 
 // GetAffiliateRule 读取规则（无记录返回默认）。

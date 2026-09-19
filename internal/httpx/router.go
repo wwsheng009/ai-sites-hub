@@ -43,6 +43,7 @@ func SetupRouter(svc *service.Services) *gin.Engine {
 	// affiliates（FR-10）
 	v1.GET("/affiliates", api.ListAffiliates)
 	v1.GET("/affiliates/site/:siteId", api.GetAffiliate)
+	v1.GET("/affiliates/site/:siteId/invitees", api.GetAffiliateInvitees)
 	v1.GET("/affiliates/site/:siteId/rule", api.GetAffiliateRule)
 	v1.PUT("/affiliates/site/:siteId/rule", api.PutAffiliateRule)
 	v1.POST("/affiliates/site/:siteId/transfer", api.TransferAffiliate)
@@ -267,6 +268,16 @@ func (a *API) GetAffiliate(c *gin.Context) {
 		return
 	}
 	OK(c, row)
+}
+
+// GetAffiliateInvitees GET /api/v1/affiliates/site/:siteId/invitees。
+func (a *API) GetAffiliateInvitees(c *gin.Context) {
+	rows, err := a.Svc.SiteAffiliateInvitees(c.Request.Context(), c.Param("siteId"))
+	if err != nil {
+		Fail(c, err)
+		return
+	}
+	OK(c, rows)
 }
 
 // GetAffiliateRule GET /api/v1/affiliates/site/:siteId/rule。

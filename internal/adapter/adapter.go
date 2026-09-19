@@ -68,16 +68,26 @@ type AccountQuota struct {
 	HasUsed    bool    `json:"has_used"`
 }
 
+// AffiliateInvitee 受邀用户条目（归一化；email 已由上游脱敏）。
+type AffiliateInvitee struct {
+	UserID      int64      `json:"user_id"`
+	Email       string     `json:"email"`
+	Username    string     `json:"username"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	TotalRebate float64    `json:"total_rebate"`
+}
+
 // AffiliateInfo 归一化站点返利信息（FR-10.1；余额单位为站点余额单位）。
 type AffiliateInfo struct {
-	AffCode      string   `json:"aff_code"`
-	RebateRate   *float64 `json:"rebate_rate,omitempty"`
-	Available    *float64 `json:"available,omitempty"`
-	Frozen       *float64 `json:"frozen,omitempty"`
-	History      *float64 `json:"history,omitempty"`
-	InviteeCount *int     `json:"invitee_count,omitempty"`
-	Currency     string   `json:"currency"` // USD | quota
-	UnitNote     string   `json:"unit_note"`
+	AffCode      string             `json:"aff_code"`
+	RebateRate   *float64           `json:"rebate_rate,omitempty"`
+	Available    *float64           `json:"available,omitempty"`
+	Frozen       *float64           `json:"frozen,omitempty"`
+	History      *float64           `json:"history,omitempty"`
+	InviteeCount *int               `json:"invitee_count,omitempty"`
+	Invitees     []AffiliateInvitee `json:"invitees,omitempty"`
+	Currency     string             `json:"currency"` // USD | quota
+	UnitNote     string             `json:"unit_note"`
 }
 
 // TransferResult 划转结果（不可逆操作留证）。

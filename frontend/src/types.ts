@@ -61,11 +61,28 @@ export interface SiteAffiliate {
   last_sync_at: string | null
 }
 
+/** AffiliateOut（含站点名便于跨站汇总） */
+export interface SiteAffiliateOut extends SiteAffiliate {
+  site_name: string
+  site_url: string
+  site_type: string
+}
+
+/** 受邀用户条目（参考 sub2api AffiliateDetail.invitees；email 上游已脱敏） */
+export interface AffiliateInvitee {
+  user_id: number
+  email: string
+  username: string
+  created_at: string | null
+  total_rebate: number
+}
+
 export interface AffRule {
   enabled: boolean
   min_amount: number
   max_per_transfer: number
   daily_limit: number
+  last_transfer_date?: string
 }
 
 export interface AffTransfer {
@@ -81,13 +98,13 @@ export interface AffTransfer {
   created_at: string
   finished_at: string | null
 }
-
 export interface Event {
   id: string
-  site_id: string
+  site_id: string | null
   type: string
   level: string
   message: string
+  data: string
   created_at: string
 }
 
@@ -101,4 +118,13 @@ export interface DoctorReport {
   overall: string
   checked_at: string
   checks: DoctorCheck[]
+}
+
+export interface SyncResult {
+  site_id?: string
+  keys_synced?: number
+  groups_synced?: number
+  aff_synced?: boolean
+  error?: string
+  [k: string]: unknown
 }
