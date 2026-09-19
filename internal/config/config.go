@@ -15,6 +15,13 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Log      LogConfig      `mapstructure:"log"`
 	Jobs     JobsConfig     `mapstructure:"jobs"`
+	Proxy    ProxyConfig    `mapstructure:"proxy"`
+}
+
+// ProxyConfig 全局出站代理（站点级 proxy_url 为空时回落）。
+type ProxyConfig struct {
+	// URL 支持 http/https/socks5；空=直连。环境变量 AISC_PROXY_URL 可覆盖。
+	URL string `mapstructure:"url"`
 }
 
 type ServerConfig struct {
@@ -84,4 +91,5 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.format", "console")
 	v.SetDefault("jobs.enabled", false)
 	v.SetDefault("jobs.dry_run_default", true)
+	v.SetDefault("proxy.url", "")
 }

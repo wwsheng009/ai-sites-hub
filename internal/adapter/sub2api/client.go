@@ -13,21 +13,26 @@ import (
 
 // Adapter sub2api 实现。
 type Adapter struct {
-	base *url.URL // 归一化站点基址（含 scheme，无尾斜杠）
-	hc   *adapter.HTTPClient
-	log  *slog.Logger
+	base     *url.URL // 归一化站点基址（含 scheme，无尾斜杠）
+	proxyURL string   // 出站代理（Detect 重建 adapter 时沿用）
+	hc       *adapter.HTTPClient
+	log      *slog.Logger
 }
 
 // UA 标识。
 const UserAgent = "ai-sites-client/0.1 (+sub2api-adapter)"
 
-// New 构建 adapter。baseURL 允许带路径（如反代子路径）。
-func New(baseURL string, log *slog.Logger) (*Adapter, error) {
+// New 构建 adapter。baseURL 允许带路径（如反代子路径）；proxyURL 为出站代理（空=直连）。
+func New(baseURL, proxyURL string, log *slog.Logger) (*Adapter, error) {
 	u, err := normalizeBase(baseURL)
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{base: u, hc: adapter.NewHTTPClient(UserAgent, 15*time.Second, 0, log), log: log}, nil
+	hc, err := adapter.NewHTTPClient(UserAgent, 15*time.Second, 0, proxyURL, log)
+	if err != nil {
+		return nil, fmt.Errorf("sub2api: 构建出站客户端: %w", err)
+	}
+	return &Adapter{base: u, proxyURL: proxyURL, hc: hc, log: log}, nil
 }
 
 // normalizeBase 归一化基址：补 scheme、去尾斜杠。

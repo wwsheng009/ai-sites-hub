@@ -209,9 +209,10 @@ func (e *ErrUnsupported) Error() string {
 	return fmt.Sprintf("adapter: 站点类型不支持能力 %q", e.Capability)
 }
 
-// AdapterFactory adapter 工厂：按站点基址与日志构建实例
+// AdapterFactory adapter 工厂：按站点基址、出站代理与日志构建实例
 // （同步类方法依赖 adapter 内部绑定的 base，必须按站点实例化）。
-type AdapterFactory func(baseURL string, log *slog.Logger) (SiteAdapter, error)
+// proxyURL 为该站点的出站代理 URL（空=直连；http/https/socks5）。
+type AdapterFactory func(baseURL, proxyURL string, log *slog.Logger) (SiteAdapter, error)
 
 // Registry adapter 注册表（按站点类型构建实例）。
 type Registry struct {
@@ -231,8 +232,8 @@ func (r *Registry) Register(t Type, f AdapterFactory) {
 	r.factories[t] = f
 }
 
-// Get 按类型为指定站点构建 adapter。
-func (r *Registry) Get(t Type, baseURL string, log *slog.Logger) (SiteAdapter, error) {
+// Get 按类型为指定站点构建 adapter（proxyURL 为该站点出站代理，空=直连）。
+func (r *Registry) Get(t Type, baseURL, proxyURL string, log *slog.Logger) (SiteAdapter, error) {
 	r.mu.RLock()
 	f, ok := r.factories[t]
 	r.mu.RUnlock()
@@ -242,5 +243,5 @@ func (r *Registry) Get(t Type, baseURL string, log *slog.Logger) (SiteAdapter, e
 	if log == nil {
 		log = slog.Default()
 	}
-	return f(baseURL, log)
+	return f(baseURL, proxyURL, log)
 }

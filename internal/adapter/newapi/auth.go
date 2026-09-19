@@ -24,7 +24,7 @@ type statusResp struct {
 
 // Detect GET /api/status 特征：success + version/system_name 命中即给证据。
 func (a *Adapter) Detect(ctx context.Context, baseURL string) (adapter.DetectResult, error) {
-	ad, err := New(baseURL, a.log) // 探测目标以传入 baseURL 为准
+	ad, err := New(baseURL, a.proxyURL, a.log) // 探测目标以传入 baseURL 为准
 	if err != nil {
 		return adapter.DetectResult{}, err
 	}

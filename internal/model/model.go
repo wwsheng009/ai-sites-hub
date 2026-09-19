@@ -8,7 +8,9 @@ type Site struct {
 	ID           string     `gorm:"column:id;primaryKey;size:36" json:"id"`
 	Name         string     `gorm:"column:name;not null" json:"name"`
 	BaseURL      string     `gorm:"column:base_url;not null;uniqueIndex" json:"base_url"`
-	APIBaseURL   string     `gorm:"column:api_base_url;not null;default:''" json:"api_base_url"`
+	// ProxyURL 站点级出站代理（http/https/socks5；空=使用全局 proxy.url，两者皆空则直连）。
+	ProxyURL    string     `gorm:"column:proxy_url;not null;default:''" json:"proxy_url"`
+	APIBaseURL  string     `gorm:"column:api_base_url;not null;default:''" json:"api_base_url"`
 	SiteType     string     `gorm:"column:site_type;not null;default:'unknown'" json:"site_type"`
 	Status       string     `gorm:"column:status;not null;default:'active'" json:"status"`
 	DetectScore  int        `gorm:"column:detect_score;not null;default:0" json:"detect_score"`

@@ -5,6 +5,7 @@ package svcwire
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -59,19 +60,20 @@ func New(cfg *config.Config) (*Wire, error) {
 	rep := repo.New(st.GORM)
 
 	reg := adapter.NewRegistry()
-	reg.Register(adapter.TypeSub2API, func(base string, l *slog.Logger) (adapter.SiteAdapter, error) {
-		return sub2api.New(base, l)
+	reg.Register(adapter.TypeSub2API, func(base, proxyURL string, l *slog.Logger) (adapter.SiteAdapter, error) {
+		return sub2api.New(base, proxyURL, l)
 	})
-	reg.Register(adapter.TypeNewAPI, func(base string, l *slog.Logger) (adapter.SiteAdapter, error) {
-		return newapi.New(base, l)
+	reg.Register(adapter.TypeNewAPI, func(base, proxyURL string, l *slog.Logger) (adapter.SiteAdapter, error) {
+		return newapi.New(base, proxyURL, l)
 	})
 
 	svcs := &service.Services{
-		Repo:   rep,
-		Sec:    cipher,
-		Reg:    reg,
-		Detect: sitedetect.New(reg, log),
-		Log:    log,
+		Repo:        rep,
+		Sec:         cipher,
+		Reg:         reg,
+		Detect:      sitedetect.New(reg, log),
+		Log:         log,
+		GlobalProxy: strings.TrimSpace(cfg.Proxy.URL),
 	}
 	return &Wire{Services: svcs, Log: log, db: st, cipher: cipher}, nil
 }

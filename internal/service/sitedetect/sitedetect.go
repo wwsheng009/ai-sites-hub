@@ -50,14 +50,15 @@ func New(reg *adapter.Registry, log *slog.Logger) *Detector {
 
 // Detect 并发探测 sub2api/new-api 特征并判定类型。
 // 并列或均低于阈值 → unknown + 报告留证。
-func (d *Detector) Detect(ctx context.Context, baseURL string) (*Result, error) {
+// proxyURL 为出站代理（站点级优先，空回落全局；空=直连）。
+func (d *Detector) Detect(ctx context.Context, baseURL, proxyURL string) (*Result, error) {
 	start := time.Now()
 
-	sub, err := d.reg.Get(adapter.TypeSub2API, baseURL, d.log)
+	sub, err := d.reg.Get(adapter.TypeSub2API, baseURL, proxyURL, d.log)
 	if err != nil {
 		return nil, fmt.Errorf("sitedetect: %w", err)
 	}
-	na, err := d.reg.Get(adapter.TypeNewAPI, baseURL, d.log)
+	na, err := d.reg.Get(adapter.TypeNewAPI, baseURL, proxyURL, d.log)
 	if err != nil {
 		return nil, fmt.Errorf("sitedetect: %w", err)
 	}

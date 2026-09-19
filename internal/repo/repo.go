@@ -35,6 +35,7 @@ func newID() string { return uuid.NewString() }
 type CreateSiteInput struct {
 	Name     string
 	BaseURL  string
+	ProxyURL string // 站点级出站代理（可空；空=回落全局 proxy.url）
 	SiteType string // 可空：由识别流程回填
 }
 
@@ -44,6 +45,7 @@ func (r *Repo) CreateSite(ctx context.Context, in CreateSiteInput) (*model.Site,
 		ID:       newID(),
 		Name:     in.Name,
 		BaseURL:  in.BaseURL,
+		ProxyURL: in.ProxyURL,
 		SiteType: in.SiteType,
 		Status:   "active",
 	}

@@ -13,21 +13,26 @@ import (
 
 // Adapter new-api 实现。
 type Adapter struct {
-	base *url.URL
-	hc   *adapter.HTTPClient
-	log  *slog.Logger
+	base     *url.URL
+	proxyURL string // 出站代理（Detect 重建 adapter 时沿用）
+	hc       *adapter.HTTPClient
+	log      *slog.Logger
 }
 
 // UA 标识。
 const UserAgent = "ai-sites-client/0.1 (+newapi-adapter)"
 
-// New 构建 adapter。
-func New(baseURL string, log *slog.Logger) (*Adapter, error) {
+// New 构建 adapter。proxyURL 为出站代理（空=直连）。
+func New(baseURL, proxyURL string, log *slog.Logger) (*Adapter, error) {
 	u, err := normalizeBase(baseURL)
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{base: u, hc: adapter.NewHTTPClient(UserAgent, 15*time.Second, 0, log), log: log}, nil
+	hc, err := adapter.NewHTTPClient(UserAgent, 15*time.Second, 0, proxyURL, log)
+	if err != nil {
+		return nil, fmt.Errorf("newapi: 构建出站客户端: %w", err)
+	}
+	return &Adapter{base: u, proxyURL: proxyURL, hc: hc, log: log}, nil
 }
 
 func normalizeBase(baseURL string) (*url.URL, error) {

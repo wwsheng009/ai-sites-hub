@@ -9,7 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 const (
@@ -28,8 +31,8 @@ type HTTPClient struct {
 	log      *slog.Logger
 }
 
-// NewHTTPClient 构建客户端。
-func NewHTTPClient(ua string, timeout time.Duration, maxBody int64, log *slog.Logger) *HTTPClient {
+// NewHTTPClient 构建客户端。proxyURL 为出站代理（空=直连；支持 http/https/socks5）。
+func NewHTTPClient(ua string, timeout time.Duration, maxBody int64, proxyURL string, log *slog.Logger) (*HTTPClient, error) {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
@@ -39,12 +42,48 @@ func NewHTTPClient(ua string, timeout time.Duration, maxBody int64, log *slog.Lo
 	if log == nil {
 		log = slog.Default()
 	}
+	transport, err := proxyTransport(proxyURL)
+	if err != nil {
+		return nil, err
+	}
 	return &HTTPClient{
-		hc:       &http.Client{Timeout: timeout},
+		hc:       &http.Client{Timeout: timeout, Transport: transport},
 		ua:       ua,
 		maxBody:  maxBody,
 		maxRetry: maxRetries,
 		log:      log,
+	}, nil
+}
+
+// proxyTransport 按代理 URL 构建出站 Transport（空 → 直连默认）。
+// 支持 http/https（CONNECT 隧道）与 socks5（含 socks5h：域名由代理解析）。
+func proxyTransport(proxyURL string) (http.RoundTripper, error) {
+	if proxyURL == "" {
+		return http.DefaultTransport, nil
+	}
+	u, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("adapter: 解析代理 URL %q: %w", proxyURL, err)
+	}
+	switch u.Scheme {
+	case "http", "https":
+		return &http.Transport{Proxy: http.ProxyURL(u)}, nil
+	case "socks5", "socks5h":
+		var auth *proxy.Auth
+		if u.User != nil {
+			pwd, _ := u.User.Password()
+			auth = &proxy.Auth{User: u.User.Username(), Password: pwd}
+		}
+		d, err := proxy.SOCKS5("tcp", u.Host, auth, proxy.Direct)
+		if err != nil {
+			return nil, fmt.Errorf("adapter: 构建 SOCKS5 拨号器: %w", err)
+		}
+		if cd, ok := d.(proxy.ContextDialer); ok {
+			return &http.Transport{DialContext: cd.DialContext}, nil
+		}
+		return &http.Transport{Dial: d.Dial}, nil
+	default:
+		return nil, fmt.Errorf("adapter: 不支持的代理协议 %q（仅 http/https/socks5）", u.Scheme)
 	}
 }
 

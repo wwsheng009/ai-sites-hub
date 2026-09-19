@@ -3,6 +3,8 @@ export interface Site {
   id: string
   name: string
   base_url: string
+  /** 站点级出站代理（http/https/socks5；空=使用全局 proxy.url，两者皆空则直连） */
+  proxy_url: string
   site_type: 'sub2api' | 'new-api' | 'unknown' | string
   status: string
   detect_score: number

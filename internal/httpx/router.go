@@ -82,6 +82,7 @@ func (a *API) ListSites(c *gin.Context) {
 type createSiteReq struct {
 	Name      string `json:"name"`
 	BaseURL   string `json:"base_url" binding:"required"`
+	ProxyURL  string `json:"proxy_url"`
 	SiteType  string `json:"site_type"`
 	DetectNow *bool  `json:"detect_now"`
 }
@@ -94,7 +95,7 @@ func (a *API) CreateSite(c *gin.Context) {
 		return
 	}
 	site, err := a.Svc.CreateSite(c.Request.Context(), service.CreateSiteInput{
-		Name: req.Name, BaseURL: req.BaseURL, ManualType: req.SiteType, DetectNow: req.DetectNow,
+		Name: req.Name, BaseURL: req.BaseURL, ProxyURL: req.ProxyURL, ManualType: req.SiteType, DetectNow: req.DetectNow,
 	})
 	if err != nil {
 		Fail(c, err)
@@ -117,6 +118,8 @@ type updateSiteReq struct {
 	Name     *string `json:"name"`
 	Status   *string `json:"status"`
 	SiteType *string `json:"site_type"`
+	// ProxyURL 出站代理；nil=不修改，空串=清除（回落全局 proxy.url）。
+	ProxyURL *string `json:"proxy_url"`
 }
 
 // UpdateSite PUT /api/v1/sites/:id。
@@ -127,7 +130,7 @@ func (a *API) UpdateSite(c *gin.Context) {
 		return
 	}
 	site, err := a.Svc.UpdateSite(c.Request.Context(), c.Param("id"), service.UpdateSiteInput{
-		Name: req.Name, Status: req.Status, SiteType: req.SiteType,
+		Name: req.Name, Status: req.Status, SiteType: req.SiteType, ProxyURL: req.ProxyURL,
 	})
 	if err != nil {
 		Fail(c, err)

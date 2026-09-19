@@ -30,7 +30,7 @@ func (a *Adapter) detectSettingsPublic(ctx context.Context) (bool, map[string]an
 
 // Detect 实现接口：任一特征命中即给出证据（打分器综合判定）。
 func (a *Adapter) Detect(ctx context.Context, baseURL string) (adapter.DetectResult, error) {
-	ad, err := New(baseURL, a.log) // 探测目标以传入 baseURL 为准
+	ad, err := New(baseURL, a.proxyURL, a.log) // 探测目标以传入 baseURL 为准
 	if err != nil {
 		return adapter.DetectResult{}, err
 	}

@@ -22,3 +22,9 @@ log:
 jobs:
   enabled: false         # 后台作业总开关（M2 骨架默认关；M4 接入后开启）
   dry_run_default: true  # 作业安全默认：不外呼，只记录
+
+proxy:
+  # 全局出站代理（站点级 proxy_url 优先；均空则直连）。
+  # 支持 http/https/socks5，如 http://127.0.0.1:7890、socks5://user:pass@127.0.0.1:1080
+  # （socks5h 域名由代理解析）。环境变量覆盖：AISC_PROXY_URL
+  url: ""

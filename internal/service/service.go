@@ -25,6 +25,9 @@ type Services struct {
 	Reg    *adapter.Registry
 	Detect *sitedetect.Detector
 	Log    *slog.Logger
+
+	// GlobalProxy 全局出站代理（config proxy.url；站点级 proxy_url 为空时回落）。
+	GlobalProxy string
 }
 
 // ErrNotFound 透传 repo.ErrNotFound。
@@ -36,6 +39,8 @@ var ErrNotFound = repo.ErrNotFound
 type CreateSiteInput struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
+	// ProxyURL 站点级出站代理（http/https/socks5；空=回落全局 proxy.url）
+	ProxyURL string `json:"proxy_url,omitempty"`
 	// ManualType 手动指定站点类型（非空时跳过自动识别；FR-1 人工覆盖优先）
 	ManualType string `json:"site_type,omitempty"`
 	// DetectNow 创建后立即识别（默认 true）
@@ -63,6 +68,27 @@ func normalizeBaseURL(s string) (string, error) {
 	return u.String(), nil
 }
 
+// normalizeProxyURL 校验出站代理 URL（空合法=未设置；支持 http/https/socks5/socks5h）。
+func normalizeProxyURL(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", fmt.Errorf("proxy_url 无效: %w", err)
+	}
+	switch u.Scheme {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return "", fmt.Errorf("不支持的代理协议 %q（仅 http/https/socks5）", u.Scheme)
+	}
+	if u.Host == "" {
+		return "", errors.New("proxy_url 缺少主机（如 socks5://127.0.0.1:1080）")
+	}
+	return s, nil
+}
+
 // CreateSite 新建站点 + 触发识别（新增向导第 1 步，architecture §9.1）。
 func (s *Services) CreateSite(ctx context.Context, in CreateSiteInput) (*model.Site, error) {
 	base, err := normalizeBaseURL(in.BaseURL)
@@ -77,11 +103,16 @@ func (s *Services) CreateSite(ctx context.Context, in CreateSiteInput) (*model.S
 		}
 	}
 
+	proxyURL, err := normalizeProxyURL(in.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
+
 	siteType := ""
 	if t := adapter.Type(in.ManualType); t == adapter.TypeSub2API || t == adapter.TypeNewAPI {
 		siteType = string(t)
 	}
-	site, err := s.Repo.CreateSite(ctx, repo.CreateSiteInput{Name: in.Name, BaseURL: base, SiteType: siteType})
+	site, err := s.Repo.CreateSite(ctx, repo.CreateSiteInput{Name: in.Name, BaseURL: base, ProxyURL: proxyURL, SiteType: siteType})
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +132,7 @@ func (s *Services) DetectSite(ctx context.Context, siteID string) (*model.Site, 
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.Detect.Detect(ctx, site.BaseURL)
+	res, err := s.Detect.Detect(ctx, site.BaseURL, s.proxyFor(site))
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +167,8 @@ type UpdateSiteInput struct {
 	Name     *string `json:"name"`
 	Status   *string `json:"status"`
 	SiteType *string `json:"site_type"`
+	// ProxyURL 出站代理；nil=不修改，空串=清除（回落全局 proxy.url）。
+	ProxyURL *string `json:"proxy_url"`
 }
 
 // UpdateSite 更新站点（人工覆盖 site_type 后识别流程跳过自动判定）。
@@ -153,6 +186,14 @@ func (s *Services) UpdateSite(ctx context.Context, id string, in UpdateSiteInput
 			return nil, fmt.Errorf("无效 status %q", *in.Status)
 		}
 	}
+	proxyURL := ""
+	if in.ProxyURL != nil {
+		p, err := normalizeProxyURL(*in.ProxyURL)
+		if err != nil {
+			return nil, err
+		}
+		proxyURL = p
+	}
 	return s.Repo.UpdateSite(ctx, id, func(s2 *model.Site) {
 		if in.Name != nil {
 			s2.Name = *in.Name
@@ -162,6 +203,9 @@ func (s *Services) UpdateSite(ctx context.Context, id string, in UpdateSiteInput
 		}
 		if in.SiteType != nil {
 			s2.SiteType = *in.SiteType
+		}
+		if in.ProxyURL != nil {
+			s2.ProxyURL = proxyURL
 		}
 	})
 }
@@ -294,9 +338,17 @@ func (s *Services) credentials(c *model.SiteCredential) adapter.Credentials {
 	}
 }
 
-// adapterFor 按站点构建 adapter（工厂绑定站点基址，同步方法可用）。
+// proxyFor 站点出站代理：站点级优先，空回落全局 proxy.url（均空=直连）。
+func (s *Services) proxyFor(site *model.Site) string {
+	if site.ProxyURL != "" {
+		return site.ProxyURL
+	}
+	return s.GlobalProxy
+}
+
+// adapterFor 按站点构建 adapter（工厂绑定站点基址与出站代理，同步方法可用）。
 func (s *Services) adapterFor(site *model.Site) (adapter.SiteAdapter, error) {
-	return s.Reg.Get(adapter.Type(site.SiteType), site.BaseURL, s.Log)
+	return s.Reg.Get(adapter.Type(site.SiteType), site.BaseURL, s.proxyFor(site), s.Log)
 }
 
 // AuthTest 登录测试（architecture §9.1 第 3 步；结果写认证状态机）。
