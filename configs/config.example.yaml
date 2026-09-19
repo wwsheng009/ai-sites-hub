@@ -6,9 +6,10 @@ server:
   base_path: ""          # 反向代理子路径（可选）
 
 security:
-  # 凭据 AES-256-GCM 主密钥（32 字节）：
-  #  - 生成：openssl rand -base64 32
+  # 凭据 AES-256-GCM 主密钥（必须是 32 字节原文，不是 base64）：
+  #  - 生成：python -c "import secrets;print(secrets.token_urlsafe(24))"   # 恰好 32 字符
   #  - 生产环境必须用环境变量 AISC_SECURITY_MASTER_KEY 注入，勿写入本文件
+  #  - 不配置时服务可启动，但凭据写入/登录测试不可用（doctor 报 fail）
   master_key: ""
 
 database:
