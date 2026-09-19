@@ -266,14 +266,26 @@ export default function UsageLogs() {
   }
 
   // 统计卡片数据（从 statsDaily 全量数据聚合，借鉴 sub2api UsageStatsCards）
+  // sub2api 页面展示「今日 vs 累计」两行网格，这里也采用相同模式
+  const today = useMemo(() => {
+    const t = today()
+    return statsDaily.filter((d) => d.day.slice(0, 10) === t)
+  }, [statsDaily])
+
   const stats = useMemo(() => {
     const totalRequests = statsDaily.reduce((sum, d) => sum + d.request_count, 0)
     const totalTokens = statsDaily.reduce((sum, d) => sum + d.total_tokens, 0)
     const totalPrompt = statsDaily.reduce((sum, d) => sum + d.prompt_tokens, 0)
     const totalCompletion = statsDaily.reduce((sum, d) => sum + d.completion_tokens, 0)
     const totalAmount = statsDaily.reduce((sum, d) => sum + d.amount, 0)
-    return { totalRequests, totalTokens, totalPrompt, totalCompletion, totalAmount }
-  }, [statsDaily])
+    const todayRequests = today.reduce((sum, d) => sum + d.request_count, 0)
+    const todayTokens = today.reduce((sum, d) => sum + d.total_tokens, 0)
+    const todayAmount = today.reduce((sum, d) => sum + d.amount, 0)
+    return {
+      totalRequests, totalTokens, totalPrompt, totalCompletion, totalAmount,
+      todayRequests, todayTokens, todayAmount,
+    }
+  }, [statsDaily, today])
 
   // 趋势图数据（按日期排序）
   const trendData = useMemo(() => {
@@ -286,6 +298,28 @@ export default function UsageLogs() {
         amount: d.amount,
       }))
   }, [daily])
+
+  // 模型统计（按 model_name 汇总，借鉴 sub2api ModelStatsTable）
+  const modelStats = useMemo(() => {
+    const byModel = new Map<string, UsageDaily>()
+    for (const d of statsDaily) {
+      const key = d.model_name || ''
+      const existing = byModel.get(key)
+      if (existing) {
+        byModel.set(key, {
+          ...existing,
+          prompt_tokens: existing.prompt_tokens + d.prompt_tokens,
+          completion_tokens: existing.completion_tokens + d.completion_tokens,
+          total_tokens: existing.total_tokens + d.total_tokens,
+          amount: existing.amount + d.amount,
+          request_count: existing.request_count + d.request_count,
+        })
+      } else {
+        byModel.set(key, { ...d })
+      }
+    }
+    return Array.from(byModel.values()).sort((a, b) => b.total_tokens - a.total_tokens)
+  }, [statsDaily])
 
   // 导出 CSV
   const exportCSV = () => {
@@ -351,13 +385,27 @@ export default function UsageLogs() {
         </p>
       </div>
 
-      {/* 统计卡片网格（借鉴 sub2api UsageStatsCards） */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* 统计卡片网格（借鉴 sub2api UsageStatsCards — 今日 vs 累计两行） */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-primary">📋</div>
           <div className="min-w-0">
+            <div className="stat-value">{stats.todayRequests.toLocaleString()}</div>
+            <div className="stat-label">今日请求</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-success">📋</div>
+          <div className="min-w-0">
             <div className="stat-value">{stats.totalRequests.toLocaleString()}</div>
-            <div className="stat-label">请求总数（最近 30 天）</div>
+            <div className="stat-label">累计请求（最近 30 天）</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-info">🔢</div>
+          <div className="min-w-0">
+            <div className="stat-value">{formatTokens(stats.todayTokens)}</div>
+            <div className="stat-label">今日 Token</div>
           </div>
         </div>
         <div className="stat-card card-hover">
@@ -369,8 +417,19 @@ export default function UsageLogs() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 金额卡片 */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-warning">💰</div>
+          <div className="min-w-0">
+            <div className="stat-value text-xl">{stats.todayAmount.toFixed(4)}</div>
+            <div className="stat-label">今日金额</div>
+          </div>
+        </div>
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-danger">💰</div>
           <div className="min-w-0">
             <div className="stat-value text-xl">{stats.totalAmount.toFixed(4)}</div>
             <div className="stat-label">
@@ -382,7 +441,7 @@ export default function UsageLogs() {
           </div>
         </div>
         <div className="stat-card card-hover">
-          <div className="stat-icon stat-icon-danger">📊</div>
+          <div className="stat-icon stat-icon-secondary">📊</div>
           <div className="min-w-0">
             <div className="stat-value">{statsDaily.length}</div>
             <div className="stat-label">聚合天数</div>
@@ -452,6 +511,46 @@ export default function UsageLogs() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* 每日用量表（借鉴 sub2api DailyUsageTable） */}
+      <div className="card p-4">
+        <h2 className="mb-3 text-sm font-medium text-gray-600 dark:text-dark-300">
+          每日用量汇总
+        </h2>
+        {daily.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted">暂无每日汇总数据</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="whitespace-nowrap">日期</th>
+                  <th className="whitespace-nowrap text-right">请求数</th>
+                  <th className="whitespace-nowrap text-right">提示词</th>
+                  <th className="whitespace-nowrap text-right">补全词</th>
+                  <th className="whitespace-nowrap text-right">总计</th>
+                  <th className="whitespace-nowrap text-right">金额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {daily
+                  .slice()
+                  .sort((a, b) => (a.day < b.day ? -1 : 1))
+                  .map((d) => (
+                    <tr key={`${d.day}-${d.model_name}`}>
+                      <td className="text-sm">{d.day.slice(5).replace('-', '/')}</td>
+                      <td className="text-right font-mono text-sm tabular-nums">{d.request_count.toLocaleString()}</td>
+                      <td className="text-right font-mono text-sm tabular-nums">{d.prompt_tokens.toLocaleString()}</td>
+                      <td className="text-right font-mono text-sm tabular-nums">{d.completion_tokens.toLocaleString()}</td>
+                      <td className="text-right font-mono text-sm tabular-nums">{d.total_tokens.toLocaleString()}</td>
+                      <td className="text-right font-mono text-sm tabular-nums">{d.amount.toFixed(4)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -567,6 +666,43 @@ export default function UsageLogs() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 模型统计表（借鉴 sub2api ModelStatsTable） */}
+      <div className="card p-4">
+        <h2 className="mb-3 text-sm font-medium text-gray-600 dark:text-dark-300">
+          模型用量统计
+        </h2>
+        {statsDaily.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted">暂无模型统计数据</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="whitespace-nowrap">模型</th>
+                  <th className="whitespace-nowrap text-right">请求数</th>
+                  <th className="whitespace-nowrap text-right">提示词</th>
+                  <th className="whitespace-nowrap text-right">补全词</th>
+                  <th className="whitespace-nowrap text-right">总计</th>
+                  <th className="whitespace-nowrap text-right">金额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modelStats.map((m) => (
+                  <tr key={m.model_name}>
+                    <td className="font-mono text-xs">{m.model_name || '—'}</td>
+                    <td className="text-right font-mono text-sm tabular-nums">{m.request_count.toLocaleString()}</td>
+                    <td className="text-right font-mono text-sm tabular-nums">{m.prompt_tokens.toLocaleString()}</td>
+                    <td className="text-right font-mono text-sm tabular-nums">{m.completion_tokens.toLocaleString()}</td>
+                    <td className="text-right font-mono text-sm tabular-nums">{m.total_tokens.toLocaleString()}</td>
+                    <td className="text-right font-mono text-sm tabular-nums">{m.amount.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* 表格（借鉴 sub2api UsageTable） */}
