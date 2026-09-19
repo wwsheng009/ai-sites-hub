@@ -265,21 +265,31 @@ func authToken(atx adapter.AuthCtx) string {
 	return normalizeToken(atx.AccessToken)
 }
 
+func hasAuth(atx adapter.AuthCtx) bool {
+	if authToken(atx) != "" {
+		return true
+	}
+	for _, c := range atx.Cookies {
+		if c != nil && strings.TrimSpace(c.Name) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func authHeaders(atx adapter.AuthCtx) map[string]string {
 	headers := make(map[string]string, 2)
 	if token := authToken(atx); token != "" {
 		headers["Authorization"] = "Bearer " + token
 	}
-	if len(atx.Cookies) > 0 {
-		values := make([]string, 0, len(atx.Cookies))
-		for _, c := range atx.Cookies {
-			if c != nil && c.Name != "" {
-				values = append(values, c.Name+"="+c.Value)
-			}
+	values := make([]string, 0, len(atx.Cookies))
+	for _, c := range atx.Cookies {
+		if c != nil && strings.TrimSpace(c.Name) != "" {
+			values = append(values, c.Name+"="+c.Value)
 		}
-		if len(values) > 0 {
-			headers["Cookie"] = strings.Join(values, "; ")
-		}
+	}
+	if len(values) > 0 {
+		headers["Cookie"] = strings.Join(values, "; ")
 	}
 	return headers
 }

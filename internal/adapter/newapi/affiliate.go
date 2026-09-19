@@ -15,8 +15,8 @@ import (
 // AffiliateInfo GET /api/user/aff（邀请码）+ GET /api/user/self（aff_* 字段）。
 // 归一化：quota 原始单位 → USD（500000=1USD）；rate 上游缺失记 NULL。
 func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapter.AffiliateInfo, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return adapter.AffiliateInfo{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return adapter.AffiliateInfo{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 
 	var info adapter.AffiliateInfo
@@ -60,8 +60,8 @@ func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapt
 // TransferAffiliate POST /api/user/aff_transfer，body {quota}（上游原始 quota 单位）。
 // 不可逆；调用方负责 dry_run 与频控。
 func (a *Adapter) TransferAffiliate(ctx context.Context, atx adapter.AuthCtx, amount adapter.Amount) (adapter.TransferResult, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	if amount.Value <= 0 {
 		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUpstreamError, "划转金额必须大于 0", nil)
@@ -109,8 +109,8 @@ type checkinStats struct {
 
 // CheckinStatus 查询签到能力/今日状态。
 func (a *Adapter) CheckinStatus(ctx context.Context, atx adapter.AuthCtx) (adapter.CheckinStatusResult, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return adapter.CheckinStatusResult{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return adapter.CheckinStatusResult{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	env, code, err := a.apiGet(ctx, atx, a.endpoint("/api/user/checkin"))
 	if err != nil {
@@ -131,8 +131,8 @@ func (a *Adapter) CheckinStatus(ctx context.Context, atx adapter.AuthCtx) (adapt
 
 // Checkin POST /api/user/checkin 执行签到（Turnstile 场景转人工）。
 func (a *Adapter) Checkin(ctx context.Context, atx adapter.AuthCtx) (adapter.CheckinResult, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return adapter.CheckinResult{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return adapter.CheckinResult{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	var env apiEnvelope
 	code, _, err := a.hc.DoJSONWithHeader(ctx, "POST", a.endpoint("/api/user/checkin"), nil, &env,

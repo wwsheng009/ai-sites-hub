@@ -261,16 +261,18 @@ export default function UsageLogs() {
     setEnd('')
     setModel('')
     setPage(1)
+    loadLogs()
+    loadDaily()
   }
 
   // 统计卡片数据（从 statsDaily 全量数据聚合，借鉴 sub2api UsageStatsCards）
   const stats = useMemo(() => {
-    const totalRequests = statsDaily.reduce((sum, d) => sum + (d.total_tokens > 0 ? 1 : 0), 0)
+    const totalDays = statsDaily.length
     const totalTokens = statsDaily.reduce((sum, d) => sum + d.total_tokens, 0)
     const totalPrompt = statsDaily.reduce((sum, d) => sum + d.prompt_tokens, 0)
     const totalCompletion = statsDaily.reduce((sum, d) => sum + d.completion_tokens, 0)
     const totalAmount = statsDaily.reduce((sum, d) => sum + d.amount, 0)
-    return { totalRequests, totalTokens, totalPrompt, totalCompletion, totalAmount }
+    return { totalDays, totalTokens, totalPrompt, totalCompletion, totalAmount }
   }, [statsDaily])
 
   // 趋势图数据（按日期排序）
@@ -354,8 +356,8 @@ export default function UsageLogs() {
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-primary">📋</div>
           <div className="min-w-0">
-            <div className="stat-value">{stats.totalRequests.toLocaleString()}</div>
-            <div className="stat-label">请求总数（{start || '7 天'} 内）</div>
+            <div className="stat-value">{stats.totalDays}</div>
+            <div className="stat-label">聚合天数（最近 30 天）</div>
           </div>
         </div>
         <div className="stat-card card-hover">
@@ -382,7 +384,7 @@ export default function UsageLogs() {
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-danger">📊</div>
           <div className="min-w-0">
-            <div className="stat-value">{daily.length}</div>
+            <div className="stat-value">{statsDaily.length}</div>
             <div className="stat-label">聚合天数</div>
           </div>
         </div>
@@ -406,7 +408,7 @@ export default function UsageLogs() {
                 const chartWidth = 680
                 const chartHeight = 120
                 const step =
-                  trendData.length > 1 ? chartWidth / (trendData.length - 1) : 0
+                  trendData.length > 1 ? chartWidth / (trendData.length - 1) : chartWidth / 2
                 const points = trendData
                   .map((d, i) => {
                     const x = padding + i * step

@@ -96,8 +96,8 @@ type logItemDTO struct {
 
 // UsageLogs 游标增量：GET /api/log/self?start_timestamp=<unix>（newapi 秒级）。
 func (a *Adapter) UsageLogs(ctx context.Context, atx adapter.AuthCtx, since time.Time) ([]adapter.UsageLog, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return nil, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return nil, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	url := fmt.Sprintf("%s/api/log/self?start_timestamp=%d", a.BaseURL(), since.Unix())
 	env, code, err := a.apiGet(ctx, atx, url)

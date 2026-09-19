@@ -49,8 +49,8 @@ func statusName(s int) string {
 
 // ListKeys 分页拉取 token 列表（M2 单页版，封顶 500）。
 func (a *Adapter) ListKeys(ctx context.Context, atx adapter.AuthCtx, page adapter.Page) (adapter.KeyPage, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return adapter.KeyPage{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return adapter.KeyPage{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	url := fmt.Sprintf("%s/api/token/?p=%d&size=%d", a.BaseURL(), maxInt(page.Page, 1), clampSize(page.Size))
 	env, code, err := a.apiGet(ctx, atx, url)
@@ -103,8 +103,8 @@ func (a *Adapter) ListKeys(ctx context.Context, atx adapter.AuthCtx, page adapte
 
 // RevealKey 调用 upstream POST /api/token/:id/key 获取完整 key（CriticalRateLimit）。
 func (a *Adapter) RevealKey(ctx context.Context, atx adapter.AuthCtx, remoteKeyID string) (string, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return "", adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return "", adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	url := fmt.Sprintf("%s/api/token/%s/key", a.BaseURL(), remoteKeyID)
 	env, code, err := a.apiPost(ctx, atx, url, nil)
@@ -125,8 +125,8 @@ func (a *Adapter) RevealKey(ctx context.Context, atx adapter.AuthCtx, remoteKeyI
 
 // ListGroups 用户可用分组 + 公开倍率。
 func (a *Adapter) ListGroups(ctx context.Context, atx adapter.AuthCtx) ([]adapter.Group, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return nil, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return nil, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 
 	// 1) 用户可用分组（宽松解析 map[string]float64 或 {"group": "..."} ）
@@ -182,8 +182,8 @@ func (a *Adapter) Quota(ctx context.Context, atx adapter.AuthCtx) (adapter.Accou
 
 // fetchSelf GET /api/user/self。
 func (a *Adapter) fetchSelf(ctx context.Context, atx adapter.AuthCtx) (userSelf, error) {
-	if atx.PAT == "" && atx.AccessToken == "" {
-		return userSelf{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token", nil)
+	if !hasAuth(atx) {
+		return userSelf{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 PAT/token/cookie", nil)
 	}
 	env, code, err := a.apiGet(ctx, atx, a.endpoint("/api/user/self"))
 	if err != nil {
