@@ -82,6 +82,50 @@ type UsageLog struct {
 	Currency         string    `json:"currency"` // 单位说明，不折算
 	Status           string    `json:"status"`   // ok|err|abort
 	ErrCode          string    `json:"err_code"`
+	// 富字段（对齐 sub2api /api/v1/usage；newapi 无对应字段时为 0/空）
+	CacheReadTokens       int64   `json:"cache_read_tokens"`
+	CacheCreationTokens   int64   `json:"cache_creation_tokens"`
+	CacheCreation5mTokens int64   `json:"cache_creation_5m_tokens"`
+	CacheCreation1hTokens int64   `json:"cache_creation_1h_tokens"`
+	InputCost             float64 `json:"input_cost"`
+	OutputCost            float64 `json:"output_cost"`
+	CacheCreationCost     float64 `json:"cache_creation_cost"`
+	CacheReadCost         float64 `json:"cache_read_cost"`
+	TotalCost             float64 `json:"total_cost"` // 原价；Amount 为实付
+	RateMultiplier        float64 `json:"rate_multiplier"`
+	FirstTokenMs          *int64  `json:"first_token_ms"` // 上游未记录 = nil
+	DurationMs            *int64  `json:"duration_ms"`    // 上游未记录 = nil
+	RequestType           string  `json:"request_type"`
+	Stream                int64   `json:"stream"` // 0/1
+	BillingMode           string  `json:"billing_mode"`
+	ServiceTier           string  `json:"service_tier"`
+	ReasoningEffort       string  `json:"reasoning_effort"`
+	InboundEndpoint       string  `json:"inbound_endpoint"`
+	GroupID               string  `json:"group_id"`
+	// 全量字段（对齐 sub2api 用户侧 UsageLog DTO；newapi 无对应字段时为 0/空）
+	UserID                    string           `json:"user_id"`
+	AccountID                 string           `json:"account_id"`
+	SubscriptionID            string           `json:"subscription_id"`
+	UpstreamEndpoint          string           `json:"upstream_endpoint"`
+	BillingType               int64            `json:"billing_type"`
+	LongContextBillingApplied int64            `json:"long_context_billing_applied"` // 0/1
+	CacheTTLOverridden        int64            `json:"cache_ttl_overridden"`         // 0/1
+	OpenAIWSMode              int64            `json:"openai_ws_mode"`               // 0/1
+	NativeCompactionV2        int64            `json:"native_compaction_v2"`         // 0/1
+	ImageCount                int64            `json:"image_count"`
+	ImageSize                 string           `json:"image_size"`
+	ImageInputSize            string           `json:"image_input_size"`
+	ImageOutputSize           string           `json:"image_output_size"`
+	ImageInputTokens          int64            `json:"image_input_tokens"`
+	ImageInputCost            float64          `json:"image_input_cost"`
+	ImageOutputTokens         int64            `json:"image_output_tokens"`
+	ImageOutputCost           float64          `json:"image_output_cost"`
+	ImageSizeSource           string           `json:"image_size_source"`
+	ImageSizeBreakdown        map[string]int64 `json:"image_size_breakdown"` // 空 = nil
+	MediaType                 string           `json:"media_type"`
+	UserAgent                 string           `json:"user_agent"`
+	IPAddress                 string           `json:"ip_address"`
+	SessionID                 string           `json:"session_id"`
 }
 
 // AffiliateInvitee 受邀用户条目（归一化；email 已由上游脱敏）。

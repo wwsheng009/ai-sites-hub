@@ -1,25 +1,52 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiGetSite, apiListUsageDaily, apiListUsageLogs } from '../api/endpoints'
 import type { Site, UsageDaily, UsageLog } from '../types'
-import { timeDisplay, statusBadgeCls, formatTokens } from '../components/ui'
+import {
+  timeDisplay,
+  statusBadgeCls,
+  formatTokens,
+  formatCacheTokens,
+  formatDuration,
+  formatMultiplier,
+  formatDateTimeFull,
+  firstTokenSeverity,
+  durationSeverity,
+  LATENCY_TEXT_CLS,
+  LATENCY_BAR_CLS,
+  LATENCY_BAR_FROM_CLS,
+  LATENCY_BAR_TO_CLS,
+  requestTypeLabel,
+  requestTypeBadgeCls,
+} from '../components/ui'
 import { useToast, errMsg } from '../components/Toast'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500]
 const DEFAULT_PAGE_SIZE = 100
 
-// 列定义（借鉴 sub2api UsageTable 列设置机制）
-type ColumnKey = 'ts' | 'model_name' | 'api_key_mask' | 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'amount' | 'status' | 'err_code'
+// 列定义（借鉴 sub2api UsageTable 列设置机制；token/费用/延迟为复合列）
+type ColumnKey =
+  | 'ts'
+  | 'model_name'
+  | 'api_key_mask'
+  | 'tokens'
+  | 'cost'
+  | 'latency'
+  | 'request_type'
+  | 'status'
+  | 'err_code'
+  | 'inbound_endpoint'
 const ALL_COLUMNS: { key: ColumnKey; label: string; defaultVisible: boolean }[] = [
   { key: 'ts', label: '时间', defaultVisible: true },
   { key: 'model_name', label: '模型', defaultVisible: true },
   { key: 'api_key_mask', label: 'Key', defaultVisible: true },
-  { key: 'prompt_tokens', label: '提示', defaultVisible: true },
-  { key: 'completion_tokens', label: '补全', defaultVisible: true },
-  { key: 'total_tokens', label: '总计', defaultVisible: true },
-  { key: 'amount', label: '金额', defaultVisible: true },
+  { key: 'tokens', label: 'Token（输入/输出/缓存）', defaultVisible: true },
+  { key: 'cost', label: '费用', defaultVisible: true },
+  { key: 'latency', label: '延迟', defaultVisible: true },
+  { key: 'request_type', label: '类型', defaultVisible: true },
   { key: 'status', label: '状态', defaultVisible: true },
   { key: 'err_code', label: '错误码', defaultVisible: false },
+  { key: 'inbound_endpoint', label: '端点', defaultVisible: false },
 ]
 
 // 日期预设（借鉴 sub2api DateRangePicker presets）
@@ -108,6 +135,151 @@ function getVisiblePages(current: number, total: number): (number | string)[] {
   return pages
 }
 
+// ============ 行内详情（展开行）============
+
+/** 空值判定：空串 / null / undefined（含纯空白串）都算空 */
+function isEmptyValue(v: unknown): boolean {
+  return v === null || v === undefined || (typeof v === 'string' && v.trim() === '')
+}
+
+/** 文本：空值统一显示 — */
+function fmtText(v: string | null | undefined): string {
+  return isEmptyValue(v) ? '—' : String(v).trim()
+}
+
+/** 布尔：false 是有效值（显示「否」），仅缺失时显示 — */
+function fmtBool(v: boolean | null | undefined): string {
+  if (v === true) return '是'
+  if (v === false) return '否'
+  return '—'
+}
+
+/** 数字：缺失 / NaN 显示 —；省略 digits 时按本地千分位展示 */
+function fmtNum(v: number | null | undefined, digits?: number): string {
+  if (typeof v !== 'number' || Number.isNaN(v)) return '—'
+  return digits === undefined ? v.toLocaleString() : v.toFixed(digits)
+}
+
+/** 计费倍率：0 / 缺失视为未知（formatMultiplier(0) 会误显示 1.00） */
+function fmtMultiplierValue(v: number | null | undefined): string {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return '—'
+  return formatMultiplier(v)
+}
+
+/** 详情分区中的单个键值对 */
+function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-muted">{label}</dt>
+      <dd className="min-w-0 break-all text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
+        {children}
+      </dd>
+    </div>
+  )
+}
+
+/** 详情分区（标题 + 键值对列表） */
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-gray-100 bg-white/70 p-3 dark:border-dark-700 dark:bg-dark-800/40">
+      <div className="mb-2 text-[11px] font-semibold tracking-wide text-gray-500 dark:text-dark-300">
+        {title}
+      </div>
+      <dl className="space-y-1 text-xs">{children}</dl>
+    </div>
+  )
+}
+
+/** 行内详情主体：账号 / 请求 / 计费 / 缓存与延迟 / 图片 / 客户端 */
+function UsageLogDetail({ log }: { log: UsageLog }) {
+  // image_size_breakdown：键值对形式（如 1024x1024: 3）；null / 空对象显示 —
+  const sizeBreakdown =
+    log.image_size_breakdown && typeof log.image_size_breakdown === 'object'
+      ? Object.entries(log.image_size_breakdown)
+          .filter(([, n]) => typeof n === 'number' && !Number.isNaN(n))
+          .map(([k, n]) => `${k}: ${n.toLocaleString()}`)
+          .join('、')
+      : ''
+
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <DetailSection title="账号">
+        <DetailField label="用户 ID">{fmtText(log.user_id)}</DetailField>
+        <DetailField label="账号 ID">{fmtText(log.account_id)}</DetailField>
+        <DetailField label="API Key ID">{fmtText(log.api_key_id)}</DetailField>
+        <DetailField label="订阅 ID">{fmtText(log.subscription_id)}</DetailField>
+      </DetailSection>
+
+      <DetailSection title="请求">
+        <DetailField label="请求类型">{fmtText(log.request_type)}</DetailField>
+        <DetailField label="流式">{fmtBool(log.stream)}</DetailField>
+        <DetailField label="计费模式">{fmtText(log.billing_mode)}</DetailField>
+        <DetailField label="服务层级">{fmtText(log.service_tier)}</DetailField>
+        <DetailField label="推理强度">{fmtText(log.reasoning_effort)}</DetailField>
+        <DetailField label="入站端点">{fmtText(log.inbound_endpoint)}</DetailField>
+        <DetailField label="上游端点">{fmtText(log.upstream_endpoint)}</DetailField>
+        <DetailField label="分组 ID">{fmtText(log.group_id)}</DetailField>
+        <DetailField label="会话 ID">{fmtText(log.session_id)}</DetailField>
+        <DetailField label="OpenAI WS 模式">{fmtBool(log.openai_ws_mode)}</DetailField>
+        <DetailField label="原生压缩 V2">{fmtBool(log.native_compaction_v2)}</DetailField>
+      </DetailSection>
+
+      <DetailSection title="计费">
+        <DetailField label="实付金额">{fmtNum(log.amount, 6)}</DetailField>
+        <DetailField label="币种">{fmtText(log.currency)}</DetailField>
+        <DetailField label="计费倍率">{fmtMultiplierValue(log.rate_multiplier)}</DetailField>
+        <DetailField label="输入费用">{fmtNum(log.input_cost, 6)}</DetailField>
+        <DetailField label="输出费用">{fmtNum(log.output_cost, 6)}</DetailField>
+        <DetailField label="缓存写入费用">{fmtNum(log.cache_creation_cost, 6)}</DetailField>
+        <DetailField label="缓存读取费用">{fmtNum(log.cache_read_cost, 6)}</DetailField>
+        <DetailField label="原价">{fmtNum(log.total_cost, 6)}</DetailField>
+        <DetailField label="计费类型">
+          {log.billing_type === 0 ? '0（未知）' : fmtNum(log.billing_type, 0)}
+        </DetailField>
+        <DetailField label="长上下文计费">{fmtBool(log.long_context_billing_applied)}</DetailField>
+        <DetailField label="缓存 TTL 覆盖">{fmtBool(log.cache_ttl_overridden)}</DetailField>
+      </DetailSection>
+
+      <DetailSection title="缓存与延迟">
+        <DetailField label="缓存读取 Token">{fmtNum(log.cache_read_tokens)}</DetailField>
+        <DetailField label="缓存写入 Token">{fmtNum(log.cache_creation_tokens)}</DetailField>
+        <DetailField label="缓存写入 5m">{fmtNum(log.cache_creation_5m_tokens)}</DetailField>
+        <DetailField label="缓存写入 1h">{fmtNum(log.cache_creation_1h_tokens)}</DetailField>
+        <DetailField label="首字延迟">{formatDuration(log.first_token_ms)}</DetailField>
+        <DetailField label="总耗时">{formatDuration(log.duration_ms)}</DetailField>
+      </DetailSection>
+
+      <DetailSection title="图片">
+        <DetailField label="图片数量">{fmtNum(log.image_count)}</DetailField>
+        <DetailField label="图片尺寸">{fmtText(log.image_size)}</DetailField>
+        <DetailField label="输入尺寸">{fmtText(log.image_input_size)}</DetailField>
+        <DetailField label="输出尺寸">{fmtText(log.image_output_size)}</DetailField>
+        <DetailField label="输入图片 Token">{fmtNum(log.image_input_tokens)}</DetailField>
+        <DetailField label="输入图片费用">{fmtNum(log.image_input_cost, 6)}</DetailField>
+        <DetailField label="输出图片 Token">{fmtNum(log.image_output_tokens)}</DetailField>
+        <DetailField label="输出图片费用">{fmtNum(log.image_output_cost, 6)}</DetailField>
+        <DetailField label="尺寸来源">{fmtText(log.image_size_source)}</DetailField>
+        <DetailField label="媒体类型">{fmtText(log.media_type)}</DetailField>
+        <DetailField label="尺寸明细">{sizeBreakdown || '—'}</DetailField>
+      </DetailSection>
+
+      <DetailSection title="客户端">
+        <DetailField label="User-Agent">{fmtText(log.user_agent)}</DetailField>
+        <DetailField label="IP 地址">{fmtText(log.ip_address)}</DetailField>
+        <DetailField label="状态">
+          {isEmptyValue(log.status) ? (
+            '—'
+          ) : (
+            <span className={`badge ${statusBadgeCls(log.status)}`}>{log.status}</span>
+          )}
+        </DetailField>
+        <DetailField label="错误码">{fmtText(log.err_code)}</DetailField>
+        <DetailField label="时间">{formatDateTimeFull(log.ts)}</DetailField>
+      </DetailSection>
+    </div>
+  )
+}
+
 export default function UsageLogs() {
   const { id } = useParams<{ id: string }>()
   const toast = useToast()
@@ -168,6 +340,20 @@ export default function UsageLogs() {
       // ignore
     }
   }
+
+  // 行内详情展开状态（key = usage log id）
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set<string>())
+  const toggleRow = useCallback((logId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(logId)) {
+        next.delete(logId)
+      } else {
+        next.add(logId)
+      }
+      return next
+    })
+  }, [])
 
   // 加载站点信息
   useEffect(() => {
@@ -269,13 +455,20 @@ export default function UsageLogs() {
     const totalTokens = statsDaily.reduce((sum, d) => sum + d.total_tokens, 0)
     const totalPrompt = statsDaily.reduce((sum, d) => sum + d.prompt_tokens, 0)
     const totalCompletion = statsDaily.reduce((sum, d) => sum + d.completion_tokens, 0)
+    const totalCacheRead = statsDaily.reduce((sum, d) => sum + (d.cache_read_tokens || 0), 0)
+    const totalCacheCreation = statsDaily.reduce((sum, d) => sum + (d.cache_creation_tokens || 0), 0)
     const totalAmount = statsDaily.reduce((sum, d) => sum + d.amount, 0)
     const todayRequests = todayData.reduce((sum, d) => sum + d.request_count, 0)
     const todayTokens = todayData.reduce((sum, d) => sum + d.total_tokens, 0)
+    const todayCacheRead = todayData.reduce((sum, d) => sum + (d.cache_read_tokens || 0), 0)
     const todayAmount = todayData.reduce((sum, d) => sum + d.amount, 0)
+    // 缓存命中率：命中读取 / (输入 + 命中读取)，与 sub2api Dashboard 口径一致
+    const cacheHitBase = totalPrompt + totalCacheRead
+    const cacheHitRate = cacheHitBase > 0 ? totalCacheRead / cacheHitBase : 0
     return {
       totalRequests, totalTokens, totalPrompt, totalCompletion, totalAmount,
       todayRequests, todayTokens, todayAmount,
+      totalCacheRead, totalCacheCreation, todayCacheRead, cacheHitRate,
     }
   }, [statsDaily, todayData])
 
@@ -303,6 +496,8 @@ export default function UsageLogs() {
           prompt_tokens: existing.prompt_tokens + d.prompt_tokens,
           completion_tokens: existing.completion_tokens + d.completion_tokens,
           total_tokens: existing.total_tokens + d.total_tokens,
+          cache_read_tokens: (existing.cache_read_tokens || 0) + (d.cache_read_tokens || 0),
+          cache_creation_tokens: (existing.cache_creation_tokens || 0) + (d.cache_creation_tokens || 0),
           amount: existing.amount + d.amount,
           request_count: existing.request_count + d.request_count,
         })
@@ -313,6 +508,26 @@ export default function UsageLogs() {
     return Array.from(byModel.values()).sort((a, b) => b.total_tokens - a.total_tokens)
   }, [statsDaily])
 
+  // 单元格导出文本：复合列展开为可读文本（借鉴 sub2api UsageView exportToCSV 列集）
+  const csvCell = (l: UsageLog, key: ColumnKey): string => {
+    switch (key) {
+      case 'ts':
+        return formatDateTimeFull(l.ts)
+      case 'tokens':
+        return `in=${l.prompt_tokens} out=${l.completion_tokens} cache_read=${l.cache_read_tokens} cache_creation=${l.cache_creation_tokens} total=${l.total_tokens}`
+      case 'cost':
+        return `${l.amount} ${l.currency} (rate=${formatMultiplier(l.rate_multiplier)}, orig=${l.total_cost})`
+      case 'latency':
+        return `first=${formatDuration(l.first_token_ms)} total=${formatDuration(l.duration_ms)}`
+      case 'request_type':
+        return requestTypeLabel(l.request_type, l.stream)
+      default: {
+        const v = l[key] as string | number | null | undefined
+        return v === undefined || v === null || v === '' ? '' : String(v)
+      }
+    }
+  }
+
   // 导出 CSV
   const exportCSV = () => {
     if (logs.length === 0) {
@@ -320,14 +535,7 @@ export default function UsageLogs() {
       return
     }
     const headers = visibleColumns.map((c) => c.label)
-    const rows = logs.map((l) =>
-      visibleColumns.map((c) => {
-        const v = l[c.key]
-        if (c.key === 'amount') return `${v} ${l.currency}`
-        if (c.key === 'ts') return timeDisplay(v as string)
-        return v !== undefined && v !== null ? String(v) : '—'
-      }),
-    )
+    const rows = logs.map((l) => visibleColumns.map((c) => csvCell(l, c.key)))
     const csvContent = [headers, ...rows]
       .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
       .join('\n')
@@ -373,7 +581,7 @@ export default function UsageLogs() {
           </h1>
         </div>
         <p className="mt-1 text-sm text-muted">
-          站点用量日志（服务端分页，pageSize={pageSize}；currency 仅标明不折算）
+          站点用量日志（Token 明细含缓存读/写，延迟含首字与总耗时；currency 仅标明不折算）
         </p>
       </div>
 
@@ -412,7 +620,7 @@ export default function UsageLogs() {
       </div>
 
       {/* 金额卡片 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <div className="stat-card card-hover">
           <div className="stat-icon stat-icon-warning">💰</div>
           <div className="min-w-0">
@@ -429,6 +637,17 @@ export default function UsageLogs() {
               <span className="text-xs text-muted">
                 ({daily[0]?.currency || 'quota'})
               </span>
+            </div>
+          </div>
+        </div>
+        {/* 缓存卡片：命中率 + 读取/写入 token（借鉴 sub2api 缓存健康度口径） */}
+        <div className="stat-card card-hover">
+          <div className="stat-icon stat-icon-info">🗄</div>
+          <div className="min-w-0">
+            <div className="stat-value">{(stats.cacheHitRate * 100).toFixed(1)}%</div>
+            <div className="stat-label">
+              缓存命中率 · 读 {formatCacheTokens(stats.totalCacheRead)} / 写{' '}
+              {formatCacheTokens(stats.totalCacheCreation)}
             </div>
           </div>
         </div>
@@ -521,9 +740,11 @@ export default function UsageLogs() {
                 <tr>
                   <th className="whitespace-nowrap">日期</th>
                   <th className="whitespace-nowrap text-right">请求数</th>
-                  <th className="whitespace-nowrap text-right">提示词</th>
-                  <th className="whitespace-nowrap text-right">补全词</th>
-                  <th className="whitespace-nowrap text-right">总计</th>
+                  <th className="whitespace-nowrap text-right">输入</th>
+                  <th className="whitespace-nowrap text-right">输出</th>
+                  <th className="whitespace-nowrap text-right">缓存读</th>
+                  <th className="whitespace-nowrap text-right">缓存写</th>
+                  <th className="whitespace-nowrap text-right">总 Token</th>
                   <th className="whitespace-nowrap text-right">金额</th>
                 </tr>
               </thead>
@@ -537,6 +758,12 @@ export default function UsageLogs() {
                       <td className="text-right font-mono text-sm tabular-nums">{d.request_count.toLocaleString()}</td>
                       <td className="text-right font-mono text-sm tabular-nums">{d.prompt_tokens.toLocaleString()}</td>
                       <td className="text-right font-mono text-sm tabular-nums">{d.completion_tokens.toLocaleString()}</td>
+                      <td className="text-right font-mono text-sm tabular-nums text-sky-600 dark:text-sky-400">
+                        {(d.cache_read_tokens || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right font-mono text-sm tabular-nums text-amber-600 dark:text-amber-400">
+                        {(d.cache_creation_tokens || 0).toLocaleString()}
+                      </td>
                       <td className="text-right font-mono text-sm tabular-nums">{d.total_tokens.toLocaleString()}</td>
                       <td className="text-right font-mono text-sm tabular-nums">{d.amount.toFixed(4)}</td>
                     </tr>
@@ -674,9 +901,11 @@ export default function UsageLogs() {
                 <tr>
                   <th className="whitespace-nowrap">模型</th>
                   <th className="whitespace-nowrap text-right">请求数</th>
-                  <th className="whitespace-nowrap text-right">提示词</th>
-                  <th className="whitespace-nowrap text-right">补全词</th>
-                  <th className="whitespace-nowrap text-right">总计</th>
+                  <th className="whitespace-nowrap text-right">输入</th>
+                  <th className="whitespace-nowrap text-right">输出</th>
+                  <th className="whitespace-nowrap text-right">缓存读</th>
+                  <th className="whitespace-nowrap text-right">缓存写</th>
+                  <th className="whitespace-nowrap text-right">总 Token</th>
                   <th className="whitespace-nowrap text-right">金额</th>
                 </tr>
               </thead>
@@ -687,6 +916,12 @@ export default function UsageLogs() {
                     <td className="text-right font-mono text-sm tabular-nums">{m.request_count.toLocaleString()}</td>
                     <td className="text-right font-mono text-sm tabular-nums">{m.prompt_tokens.toLocaleString()}</td>
                     <td className="text-right font-mono text-sm tabular-nums">{m.completion_tokens.toLocaleString()}</td>
+                    <td className="text-right font-mono text-sm tabular-nums text-sky-600 dark:text-sky-400">
+                      {(m.cache_read_tokens || 0).toLocaleString()}
+                    </td>
+                    <td className="text-right font-mono text-sm tabular-nums text-amber-600 dark:text-amber-400">
+                      {(m.cache_creation_tokens || 0).toLocaleString()}
+                    </td>
                     <td className="text-right font-mono text-sm tabular-nums">{m.total_tokens.toLocaleString()}</td>
                     <td className="text-right font-mono text-sm tabular-nums">{m.amount.toFixed(4)}</td>
                   </tr>
@@ -717,26 +952,63 @@ export default function UsageLogs() {
             </thead>
             <tbody>
               {logs.map((l) => (
-                <tr key={l.id}>
-                  {visibleColumns.map((col) => {
-                    const v = l[col.key] as string | number | undefined
+                <Fragment key={l.id}>
+                  <tr
+                    className={`cursor-pointer ${
+                      expandedRows.has(l.id) ? 'bg-gray-50 dark:bg-dark-800/40' : ''
+                    }`}
+                    onClick={() => toggleRow(l.id)}
+                  >
+                  {visibleColumns.map((col, colIdx) => {
+                    const ft = l.first_token_ms ?? null
+                    const dur = l.duration_ms ?? null
                     let content: React.ReactNode
                     switch (col.key) {
                       case 'ts':
                         content = (
-                          <span className="text-xs text-muted">
-                            {timeDisplay(v as string)}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className="whitespace-nowrap text-xs tabular-nums text-gray-700 dark:text-gray-300"
+                              title={l.ts}
+                            >
+                              {formatDateTimeFull(l.ts)}
+                            </span>
+                            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                              {timeDisplay(l.ts)}
+                            </span>
+                          </div>
                         )
                         break
                       case 'model_name':
                         content = (
-                          <span
-                            className="font-mono text-xs"
-                            title={v ? String(v) : undefined}
-                          >
-                            {v || '—'}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className="font-mono text-xs"
+                              title={l.model_name || undefined}
+                            >
+                              {l.model_name || '—'}
+                            </span>
+                            {(l.reasoning_effort || l.service_tier) && (
+                              <div className="flex flex-wrap items-center gap-1">
+                                {l.reasoning_effort && (
+                                  <span
+                                    className="badge badge-muted px-1 py-px text-[10px]"
+                                    title="推理强度"
+                                  >
+                                    {l.reasoning_effort}
+                                  </span>
+                                )}
+                                {l.service_tier && (
+                                  <span
+                                    className="badge badge-primary px-1 py-px text-[10px]"
+                                    title="服务层级"
+                                  >
+                                    {l.service_tier}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         )
                         break
                       case 'api_key_mask':
@@ -744,15 +1016,18 @@ export default function UsageLogs() {
                           <div className="flex items-center gap-1">
                             <span
                               className="font-mono text-xs"
-                              title={v ? String(v) : undefined}
-                              onDoubleClick={() => v && copyKey(String(v))}
+                              title={l.api_key_mask || undefined}
+                              onDoubleClick={() => l.api_key_mask && copyKey(l.api_key_mask)}
                             >
-                              {v || '—'}
+                              {l.api_key_mask || '—'}
                             </span>
-                            {v && (
+                            {l.api_key_mask && (
                               <button
                                 className="text-xs text-gray-400 hover:text-gray-600"
-                                onClick={() => copyKey(String(v))}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  copyKey(l.api_key_mask)
+                                }}
                                 title="复制"
                               >
                                 📋
@@ -761,36 +1036,142 @@ export default function UsageLogs() {
                           </div>
                         )
                         break
-                      case 'prompt_tokens':
-                      case 'completion_tokens':
-                      case 'total_tokens':
+                      case 'tokens':
                         content = (
-                          <span className="font-mono text-xs">
-                            {v !== undefined && v !== null
-                              ? formatTokens(v as number)
-                              : '—'}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2 text-xs tabular-nums">
+                              <span
+                                className="text-emerald-600 dark:text-emerald-400"
+                                title={`输入 ${l.prompt_tokens.toLocaleString()}`}
+                              >
+                                ↓ {formatTokens(l.prompt_tokens)}
+                              </span>
+                              <span
+                                className="text-violet-600 dark:text-violet-400"
+                                title={`输出 ${l.completion_tokens.toLocaleString()}`}
+                              >
+                                ↑ {formatTokens(l.completion_tokens)}
+                              </span>
+                            </div>
+                            {(l.cache_read_tokens > 0 || l.cache_creation_tokens > 0) && (
+                              <div className="flex items-center gap-2 text-[11px] tabular-nums">
+                                {l.cache_read_tokens > 0 && (
+                                  <span
+                                    className="text-sky-600 dark:text-sky-400"
+                                    title={`缓存读取 ${l.cache_read_tokens.toLocaleString()}`}
+                                  >
+                                    🗄 {formatCacheTokens(l.cache_read_tokens)}
+                                  </span>
+                                )}
+                                {l.cache_creation_tokens > 0 && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"
+                                    title={`缓存写入 ${l.cache_creation_tokens.toLocaleString()}（5m ${(l.cache_creation_5m_tokens || 0).toLocaleString()} / 1h ${(l.cache_creation_1h_tokens || 0).toLocaleString()}）`}
+                                  >
+                                    ✎ {formatCacheTokens(l.cache_creation_tokens)}
+                                    {l.cache_creation_1h_tokens > 0 && (
+                                      <span className="rounded bg-orange-100 px-1 py-px text-[10px] font-medium leading-tight text-orange-600 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:ring-orange-500/30">
+                                        1h
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            <span className="text-[11px] tabular-nums text-gray-400 dark:text-gray-500">
+                              合计 {formatTokens(l.total_tokens)}
+                            </span>
+                          </div>
                         )
                         break
-                      case 'amount':
+                      case 'cost':
                         content = (
-                          <span className="font-mono text-xs">
-                            {v !== undefined && v !== null
-                              ? (v as number).toFixed(4)
-                              : '—'}
-                            <span className="text-xs text-muted">
-                              {' '}
-                              ({l.currency})
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span
+                              className="whitespace-nowrap font-mono text-xs tabular-nums"
+                              title="实付金额"
+                            >
+                              {l.amount.toFixed(6)}
+                              <span className="ml-1 text-[10px] text-gray-400">
+                                {l.currency}
+                              </span>
                             </span>
-                          </span>
+                            {l.total_cost > l.amount + 1e-9 && (
+                              <span
+                                className="text-[11px] tabular-nums text-gray-400 line-through"
+                                title="原价（未计倍率）"
+                              >
+                                {l.total_cost.toFixed(6)}
+                              </span>
+                            )}
+                            {l.rate_multiplier > 0 &&
+                              Math.abs(l.rate_multiplier - 1) > 1e-9 && (
+                                <span
+                                  className="badge badge-warning px-1 py-px text-[10px]"
+                                  title="计费倍率"
+                                >
+                                  ×{formatMultiplier(l.rate_multiplier)}
+                                </span>
+                              )}
+                          </div>
+                        )
+                        break
+                      case 'latency':
+                        content = (
+                          <div className="flex items-stretch gap-2">
+                            <span
+                              className={`w-1 shrink-0 rounded-full ${
+                                ft !== null
+                                  ? `bg-gradient-to-b ${LATENCY_BAR_FROM_CLS[firstTokenSeverity(ft)]} ${LATENCY_BAR_TO_CLS[durationSeverity(dur ?? 0)]}`
+                                  : LATENCY_BAR_CLS[durationSeverity(dur ?? 0)]
+                              }`}
+                              aria-hidden="true"
+                            />
+                            <div className="grid grid-cols-[max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-[11px]">
+                              <span className="text-gray-400 dark:text-gray-500">首字</span>
+                              {ft !== null ? (
+                                <span
+                                  className={`font-medium tabular-nums ${LATENCY_TEXT_CLS[firstTokenSeverity(ft)]}`}
+                                >
+                                  {formatDuration(ft)}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400 dark:text-gray-500">—</span>
+                              )}
+                              <span className="text-gray-400 dark:text-gray-500">耗时</span>
+                              {dur !== null ? (
+                                <span
+                                  className={`font-medium tabular-nums ${LATENCY_TEXT_CLS[durationSeverity(dur)]}`}
+                                >
+                                  {formatDuration(dur)}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400 dark:text-gray-500">—</span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                        break
+                      case 'request_type':
+                        content = (
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span
+                              className={`badge ${requestTypeBadgeCls(l.request_type, l.stream)}`}
+                            >
+                              {requestTypeLabel(l.request_type, l.stream)}
+                            </span>
+                            {l.billing_mode && (
+                              <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                                {l.billing_mode}
+                              </span>
+                            )}
+                          </div>
                         )
                         break
                       case 'status':
                         content = (
-                          <span
-                            className={`badge ${statusBadgeCls(v as string)}`}
-                          >
-                            {v || '—'}
+                          <span className={`badge ${statusBadgeCls(l.status)}`}>
+                            {l.status || '—'}
                           </span>
                         )
                         break
@@ -798,23 +1179,58 @@ export default function UsageLogs() {
                         content = (
                           <span
                             className="font-mono text-xs text-gray-500"
-                            title={v ? String(v) : undefined}
+                            title={l.err_code || undefined}
                           >
-                            {v || '—'}
+                            {l.err_code || '—'}
+                          </span>
+                        )
+                        break
+                      case 'inbound_endpoint':
+                        content = (
+                          <span
+                            className="block max-w-[180px] truncate font-mono text-[11px] text-gray-500"
+                            title={l.inbound_endpoint || undefined}
+                          >
+                            {l.inbound_endpoint || '—'}
                           </span>
                         )
                         break
                       default:
-                        content =
-                          v !== undefined && v !== null ? String(v) : '—'
+                        content = '—'
                     }
                     return (
-                      <td key={col.key} className="font-mono text-xs">
-                        {content}
+                      <td key={col.key} className="align-top">
+                        {colIdx === 0 ? (
+                          <div className="flex items-start gap-1.5">
+                            <button
+                              type="button"
+                              className="mt-0.5 shrink-0 text-[10px] leading-none text-gray-400 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-gray-200"
+                              aria-expanded={expandedRows.has(l.id)}
+                              aria-label={expandedRows.has(l.id) ? '收起该行详情' : '展开该行详情'}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRow(l.id)
+                              }}
+                            >
+                              {expandedRows.has(l.id) ? '▾' : '▸'}
+                            </button>
+                            <div className="min-w-0 flex-1">{content}</div>
+                          </div>
+                        ) : (
+                          content
+                        )}
                       </td>
                     )
                   })}
                 </tr>
+                {expandedRows.has(l.id) && (
+                  <tr className="bg-gray-50/70 dark:bg-dark-800/30">
+                    <td colSpan={visibleColumns.length} className="px-4 py-4">
+                      <UsageLogDetail log={l} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
               {logs.length === 0 && !loading && (
                 <tr>

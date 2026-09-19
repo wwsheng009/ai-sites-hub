@@ -686,8 +686,23 @@ func (r *Repo) InsertUsageLogs(ctx context.Context, siteID string, logs []model.
 		tx := r.db.WithContext(ctx).Begin()
 		batchRows := rows[i:end]
 		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "site_id"}, {Name: "remote_ref"}},
-			DoUpdates: clause.AssignmentColumns([]string{"ts", "model_name", "api_key_id", "api_key_mask", "prompt_tokens", "completion_tokens", "total_tokens", "amount", "currency", "status", "err_code", "fetched_at"}),
+			Columns: []clause.Column{{Name: "site_id"}, {Name: "remote_ref"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"ts", "model_name", "api_key_id", "api_key_mask",
+				"prompt_tokens", "completion_tokens", "total_tokens",
+				"cache_read_tokens", "cache_creation_tokens", "cache_creation_5m_tokens", "cache_creation_1h_tokens",
+				"amount", "input_cost", "output_cost", "cache_creation_cost", "cache_read_cost", "total_cost",
+				"rate_multiplier", "first_token_ms", "duration_ms", "request_type", "stream",
+				"billing_mode", "service_tier", "reasoning_effort", "inbound_endpoint", "group_id",
+				"currency", "status", "err_code", "fetched_at",
+				"user_id", "account_id", "subscription_id", "upstream_endpoint",
+				"billing_type", "long_context_billing_applied", "cache_ttl_overridden",
+				"openai_ws_mode", "native_compaction_v2",
+				"image_count", "image_size", "image_input_size", "image_output_size",
+				"image_input_tokens", "image_input_cost", "image_output_tokens", "image_output_cost",
+				"image_size_source", "image_size_breakdown", "media_type",
+				"user_agent", "ip_address", "session_id",
+			}),
 		}).Create(&batchRows).Error; err != nil {
 			_ = tx.Rollback()
 			return affected, fmt.Errorf("repo: 写入 usage_logs: %w", err)
@@ -815,9 +830,10 @@ func (r *Repo) UpsertCheckin(ctx context.Context, c *model.SiteCheckin) error {
 
 // AggregateUsageDaily 按 day + model_name 汇总 usage_logs → usage_daily（幂等 upsert）。
 func (r *Repo) AggregateUsageDaily(ctx context.Context, siteID, day string) (int, error) {
-	const aggSQL = `INSERT INTO usage_daily (id, site_id, day, model_name, prompt_tokens, completion_tokens, total_tokens, amount, currency, request_count)
+	const aggSQL = `INSERT INTO usage_daily (id, site_id, day, model_name, prompt_tokens, completion_tokens, total_tokens, cache_read_tokens, cache_creation_tokens, amount, currency, request_count)
 SELECT ?, ?, ?, COALESCE(model_name,''),
-       SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(amount), 'quota', COUNT(*)
+       SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens),
+       SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(amount), 'quota', COUNT(*)
 FROM usage_logs
 WHERE site_id = ? AND date(ts) = ?
 GROUP BY COALESCE(model_name,'')
@@ -825,6 +841,8 @@ ON CONFLICT(site_id, day, model_name) DO UPDATE SET
   prompt_tokens = excluded.prompt_tokens,
   completion_tokens = excluded.completion_tokens,
   total_tokens = excluded.total_tokens,
+  cache_read_tokens = excluded.cache_read_tokens,
+  cache_creation_tokens = excluded.cache_creation_tokens,
   amount = excluded.amount,
   request_count = excluded.request_count;`
 	res := r.db.WithContext(ctx).Exec(aggSQL, newID(), siteID, day, siteID, day)

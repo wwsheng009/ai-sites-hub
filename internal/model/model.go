@@ -212,7 +212,51 @@ type UsageLog struct {
 	Currency         string    `gorm:"column:currency;not null;default:'quota'" json:"currency"` // 单位说明，不折算
 	Status           string    `gorm:"column:status;not null;default:'ok'" json:"status"`        // ok|err|abort
 	ErrCode          string    `gorm:"column:err_code;not null;default:''" json:"err_code"`
-	FetchedAt        time.Time `gorm:"column:fetched_at;not null" json:"fetched_at"`
+	// 富字段（0009；对齐 sub2api UsageLog）
+	CacheReadTokens       int64   `gorm:"column:cache_read_tokens;not null;default:0" json:"cache_read_tokens"`
+	CacheCreationTokens   int64   `gorm:"column:cache_creation_tokens;not null;default:0" json:"cache_creation_tokens"`
+	CacheCreation5mTokens int64   `gorm:"column:cache_creation_5m_tokens;not null;default:0" json:"cache_creation_5m_tokens"`
+	CacheCreation1hTokens int64   `gorm:"column:cache_creation_1h_tokens;not null;default:0" json:"cache_creation_1h_tokens"`
+	InputCost             float64 `gorm:"column:input_cost;not null;default:0" json:"input_cost"`
+	OutputCost            float64 `gorm:"column:output_cost;not null;default:0" json:"output_cost"`
+	CacheCreationCost     float64 `gorm:"column:cache_creation_cost;not null;default:0" json:"cache_creation_cost"`
+	CacheReadCost         float64 `gorm:"column:cache_read_cost;not null;default:0" json:"cache_read_cost"`
+	TotalCost             float64 `gorm:"column:total_cost;not null;default:0" json:"total_cost"` // 原价；Amount 为实付（actual_cost）
+	RateMultiplier        float64 `gorm:"column:rate_multiplier;not null;default:1" json:"rate_multiplier"`
+	FirstTokenMs          *int64  `gorm:"column:first_token_ms" json:"first_token_ms"` // 上游未记录 = NULL
+	DurationMs            *int64  `gorm:"column:duration_ms" json:"duration_ms"`       // 上游未记录 = NULL
+	RequestType           string  `gorm:"column:request_type;not null;default:''" json:"request_type"`
+	Stream                int64   `gorm:"column:stream;not null;default:0" json:"stream"` // 0/1
+	BillingMode           string  `gorm:"column:billing_mode;not null;default:''" json:"billing_mode"`
+	ServiceTier           string  `gorm:"column:service_tier;not null;default:''" json:"service_tier"`
+	ReasoningEffort       string  `gorm:"column:reasoning_effort;not null;default:''" json:"reasoning_effort"`
+	InboundEndpoint       string  `gorm:"column:inbound_endpoint;not null;default:''" json:"inbound_endpoint"`
+	GroupID               string  `gorm:"column:group_id;not null;default:''" json:"group_id"`
+	// 全量字段（0010；对齐 sub2api 用户侧 UsageLog DTO 余下字段）
+	UserID                    string    `gorm:"column:user_id;not null;default:''" json:"user_id"`
+	AccountID                 string    `gorm:"column:account_id;not null;default:''" json:"account_id"`
+	SubscriptionID            string    `gorm:"column:subscription_id;not null;default:''" json:"subscription_id"`
+	UpstreamEndpoint          string    `gorm:"column:upstream_endpoint;not null;default:''" json:"upstream_endpoint"`
+	BillingType               int64     `gorm:"column:billing_type;not null;default:0" json:"billing_type"`
+	LongContextBillingApplied int64     `gorm:"column:long_context_billing_applied;not null;default:0" json:"long_context_billing_applied"` // 0/1
+	CacheTTLOverridden        int64     `gorm:"column:cache_ttl_overridden;not null;default:0" json:"cache_ttl_overridden"`                 // 0/1
+	OpenAIWSMode              int64     `gorm:"column:openai_ws_mode;not null;default:0" json:"openai_ws_mode"`                             // 0/1
+	NativeCompactionV2        int64     `gorm:"column:native_compaction_v2;not null;default:0" json:"native_compaction_v2"`                 // 0/1
+	ImageCount                int64     `gorm:"column:image_count;not null;default:0" json:"image_count"`
+	ImageSize                 string    `gorm:"column:image_size;not null;default:''" json:"image_size"`
+	ImageInputSize            string    `gorm:"column:image_input_size;not null;default:''" json:"image_input_size"`
+	ImageOutputSize           string    `gorm:"column:image_output_size;not null;default:''" json:"image_output_size"`
+	ImageInputTokens          int64     `gorm:"column:image_input_tokens;not null;default:0" json:"image_input_tokens"`
+	ImageInputCost            float64   `gorm:"column:image_input_cost;not null;default:0" json:"image_input_cost"`
+	ImageOutputTokens         int64     `gorm:"column:image_output_tokens;not null;default:0" json:"image_output_tokens"`
+	ImageOutputCost           float64   `gorm:"column:image_output_cost;not null;default:0" json:"image_output_cost"`
+	ImageSizeSource           string    `gorm:"column:image_size_source;not null;default:''" json:"image_size_source"`
+	ImageSizeBreakdown        string    `gorm:"column:image_size_breakdown;not null;default:''" json:"image_size_breakdown"` // JSON 文本；空 = 无
+	MediaType                 string    `gorm:"column:media_type;not null;default:''" json:"media_type"`
+	UserAgent                 string    `gorm:"column:user_agent;not null;default:''" json:"user_agent"`
+	IPAddress                 string    `gorm:"column:ip_address;not null;default:''" json:"ip_address"`
+	SessionID                 string    `gorm:"column:session_id;not null;default:''" json:"session_id"`
+	FetchedAt                 time.Time `gorm:"column:fetched_at;not null" json:"fetched_at"`
 }
 
 // TableName 表名。
@@ -220,16 +264,19 @@ func (UsageLog) TableName() string { return "usage_logs" }
 
 // UsageDaily 用量日聚合（S3；按 day + model_name 汇总）。
 type UsageDaily struct {
-	ID               string  `gorm:"column:id;primaryKey;size:36" json:"id"`
-	SiteID           string  `gorm:"column:site_id;not null" json:"site_id"`
-	Day              string  `gorm:"column:day;not null" json:"day"` // 'YYYY-MM-DD'
-	ModelName        string  `gorm:"column:model_name;not null;default:''" json:"model_name"`
-	PromptTokens     int64   `gorm:"column:prompt_tokens;not null;default:0" json:"prompt_tokens"`
-	CompletionTokens int64   `gorm:"column:completion_tokens;not null;default:0" json:"completion_tokens"`
-	TotalTokens      int64   `gorm:"column:total_tokens;not null;default:0" json:"total_tokens"`
-	Amount           float64 `gorm:"column:amount;not null;default:0" json:"amount"`
-	Currency         string  `gorm:"column:currency;not null;default:'quota'" json:"currency"`
-	RequestCount     int64   `gorm:"column:request_count;not null;default:0" json:"request_count"`
+	ID               string `gorm:"column:id;primaryKey;size:36" json:"id"`
+	SiteID           string `gorm:"column:site_id;not null" json:"site_id"`
+	Day              string `gorm:"column:day;not null" json:"day"` // 'YYYY-MM-DD'
+	ModelName        string `gorm:"column:model_name;not null;default:''" json:"model_name"`
+	PromptTokens     int64  `gorm:"column:prompt_tokens;not null;default:0" json:"prompt_tokens"`
+	CompletionTokens int64  `gorm:"column:completion_tokens;not null;default:0" json:"completion_tokens"`
+	TotalTokens      int64  `gorm:"column:total_tokens;not null;default:0" json:"total_tokens"`
+	// 缓存 token 日聚合（0009）
+	CacheReadTokens     int64   `gorm:"column:cache_read_tokens;not null;default:0" json:"cache_read_tokens"`
+	CacheCreationTokens int64   `gorm:"column:cache_creation_tokens;not null;default:0" json:"cache_creation_tokens"`
+	Amount              float64 `gorm:"column:amount;not null;default:0" json:"amount"`
+	Currency            string  `gorm:"column:currency;not null;default:'quota'" json:"currency"`
+	RequestCount        int64   `gorm:"column:request_count;not null;default:0" json:"request_count"`
 }
 
 // TableName 表名。

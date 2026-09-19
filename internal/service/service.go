@@ -708,18 +708,60 @@ func (s *Services) SyncUsageLog(ctx context.Context, ad adapter.SiteAdapter, atx
 	rows := make([]model.UsageLog, 0, len(logs))
 	for _, l := range logs {
 		rows = append(rows, model.UsageLog{
-			RemoteRef:        l.RemoteRef,
-			Timestamp:        l.Timestamp,
-			ModelName:        l.ModelName,
-			ApiKeyID:         l.ApiKeyID,
-			ApiKeyMask:       l.ApiKeyMask,
-			PromptTokens:     l.PromptTokens,
-			CompletionTokens: l.CompletionTokens,
-			TotalTokens:      l.TotalTokens,
-			Amount:           l.Amount,
-			Currency:         l.Currency,
-			Status:           l.Status,
-			ErrCode:          l.ErrCode,
+			RemoteRef:                 l.RemoteRef,
+			Timestamp:                 l.Timestamp,
+			ModelName:                 l.ModelName,
+			ApiKeyID:                  l.ApiKeyID,
+			ApiKeyMask:                l.ApiKeyMask,
+			PromptTokens:              l.PromptTokens,
+			CompletionTokens:          l.CompletionTokens,
+			TotalTokens:               l.TotalTokens,
+			Amount:                    l.Amount,
+			Currency:                  l.Currency,
+			Status:                    l.Status,
+			ErrCode:                   l.ErrCode,
+			CacheReadTokens:           l.CacheReadTokens,
+			CacheCreationTokens:       l.CacheCreationTokens,
+			CacheCreation5mTokens:     l.CacheCreation5mTokens,
+			CacheCreation1hTokens:     l.CacheCreation1hTokens,
+			InputCost:                 l.InputCost,
+			OutputCost:                l.OutputCost,
+			CacheCreationCost:         l.CacheCreationCost,
+			CacheReadCost:             l.CacheReadCost,
+			TotalCost:                 l.TotalCost,
+			RateMultiplier:            l.RateMultiplier,
+			FirstTokenMs:              l.FirstTokenMs,
+			DurationMs:                l.DurationMs,
+			RequestType:               l.RequestType,
+			Stream:                    l.Stream,
+			BillingMode:               l.BillingMode,
+			ServiceTier:               l.ServiceTier,
+			ReasoningEffort:           l.ReasoningEffort,
+			InboundEndpoint:           l.InboundEndpoint,
+			GroupID:                   l.GroupID,
+			UserID:                    l.UserID,
+			AccountID:                 l.AccountID,
+			SubscriptionID:            l.SubscriptionID,
+			UpstreamEndpoint:          l.UpstreamEndpoint,
+			BillingType:               l.BillingType,
+			LongContextBillingApplied: l.LongContextBillingApplied,
+			CacheTTLOverridden:        l.CacheTTLOverridden,
+			OpenAIWSMode:              l.OpenAIWSMode,
+			NativeCompactionV2:        l.NativeCompactionV2,
+			ImageCount:                l.ImageCount,
+			ImageSize:                 l.ImageSize,
+			ImageInputSize:            l.ImageInputSize,
+			ImageOutputSize:           l.ImageOutputSize,
+			ImageInputTokens:          l.ImageInputTokens,
+			ImageInputCost:            l.ImageInputCost,
+			ImageOutputTokens:         l.ImageOutputTokens,
+			ImageOutputCost:           l.ImageOutputCost,
+			ImageSizeSource:           l.ImageSizeSource,
+			ImageSizeBreakdown:        marshalIntMap(l.ImageSizeBreakdown),
+			MediaType:                 l.MediaType,
+			UserAgent:                 l.UserAgent,
+			IPAddress:                 l.IPAddress,
+			SessionID:                 l.SessionID,
 		})
 	}
 	n, err := s.Repo.InsertUsageLogs(ctx, siteID, rows)
@@ -982,6 +1024,14 @@ func mustJSON(v any) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+// marshalIntMap map[string]int64 → JSON 文本；空 map / nil → ""（DB 空列语义）。
+func marshalIntMap(m map[string]int64) string {
+	if len(m) == 0 {
+		return ""
+	}
+	return mustJSON(m)
 }
 
 // ---- keys / groups / events 查询 ----

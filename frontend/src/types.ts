@@ -139,19 +139,74 @@ export interface SiteAnnouncement {
   published_at: string | null
 }
 
-/** usage_logs 投影（S2）；RemoteRef 不下发给前端，换 id */
+/** usage_logs 投影（S2）：id 为本地行标识（后端另发 remote_ref，可用于与上游对账） */
 export interface UsageLog {
   id: string
   model_name: string
+  api_key_id: string
   api_key_mask: string
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  /** 缓存 token（Anthropic prompt caching）：读取 / 写入 / 5m / 1h */
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  cache_creation_5m_tokens: number
+  cache_creation_1h_tokens: number
+  /** 费用分解（站点币，仅标明不折算） */
+  input_cost: number
+  output_cost: number
+  cache_creation_cost: number
+  cache_read_cost: number
+  /** 原价（未打折） */
+  total_cost: number
+  /** 实付 */
   amount: number
+  /** 计费倍率（1 = 无折扣） */
+  rate_multiplier: number
   currency: string
   status: string
   err_code: string
+  /** 请求形态：stream / sync / ws_v2 / live / cyber */
+  request_type: string
+  stream: boolean
+  billing_mode: string
+  service_tier: string
+  reasoning_effort: string
+  inbound_endpoint: string
+  group_id: string
+  /** 首字延迟 / 总耗时（毫秒；null = 上游未记录） */
+  first_token_ms: number | null
+  duration_ms: number | null
   ts: string
+  /** 账号归属（上游标识；未知为 ""，不是 null） */
+  user_id: string
+  account_id: string
+  subscription_id: string
+  /** 请求形态（上游归一化后的实际路由与开关；boolean 后端已把 0/1 转为 bool，false 为有效值） */
+  upstream_endpoint: string
+  long_context_billing_applied: boolean
+  /** 计费类型枚举（0 = 未知） */
+  billing_type: number
+  openai_ws_mode: boolean
+  native_compaction_v2: boolean
+  cache_ttl_overridden: boolean
+  /** 图片计费（无数据为 0 / ""；image_size_breakdown 无数据为 null） */
+  image_count: number
+  image_size: string
+  image_input_size: string
+  image_output_size: string
+  image_input_tokens: number
+  image_input_cost: number
+  image_output_tokens: number
+  image_output_cost: number
+  image_size_source: string
+  image_size_breakdown: Record<string, number> | null
+  media_type: string
+  /** 客户端信息（未知为 ""） */
+  user_agent: string
+  ip_address: string
+  session_id: string
 }
 
 /** usage_daily 聚合（S3） */
@@ -163,6 +218,8 @@ export interface UsageDaily {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
   amount: number
   currency: string
   request_count: number

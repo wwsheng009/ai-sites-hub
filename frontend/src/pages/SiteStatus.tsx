@@ -19,13 +19,6 @@ const statusBadgeCls: Record<string, string> = {
   offline: 'badge-danger',
 }
 
-const syncStateBadgeCls: Record<string, string> = {
-  ok: 'badge-success',
-  success: 'badge-success',
-  error: 'badge-danger',
-  warn: 'badge-warning',
-}
-
 const domainLabels: Record<string, string> = {
   keys: '密钥',
   groups: '分组',
@@ -207,10 +200,9 @@ export default function SiteStatus() {
                     </td>
                     <td className="font-mono text-xs">
                       {balance ? (
-                        <>
-                          <span className="text-gray-900 dark:text-white">{balance.available ?? '—'}</span>
-                          <span className="text-gray-500 dark:text-dark-400"> {balance.currency ?? ''}</span>
-                        </>
+                        <span className="text-gray-900 dark:text-white">
+                          {balance.available ?? '—'}
+                        </span>
                       ) : (
                         '—'
                       )}
