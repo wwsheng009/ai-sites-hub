@@ -9,6 +9,7 @@ export interface Site {
   status: string
   detect_score: number
   detect_report: string
+  sync_cfg: string
   last_probe_at: string | null
   created_at: string
   updated_at: string
@@ -127,4 +128,53 @@ export interface SyncResult {
   aff_synced?: boolean
   error?: string
   [k: string]: unknown
+}
+
+/** site_announcements 投影（S5；FR-4.4） */
+export interface SiteAnnouncement {
+  site_id: string
+  site_name?: string
+  title: string
+  content: string
+  published_at: string | null
+}
+
+/** usage_logs 投影（S2）；RemoteRef 不下发给前端，换 id */
+export interface UsageLog {
+  id: string
+  model_name: string
+  api_key_mask: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  amount: number
+  currency: string
+  status: string
+  err_code: string
+  ts: string
+}
+
+/** usage_daily 聚合（S3） */
+export interface UsageDaily {
+  id: string
+  site_id: string
+  day: string
+  model_name: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  amount: number
+  currency: string
+}
+
+/** models 广场（S4） */
+export interface SiteModel {
+  site_id: string
+  site_name: string
+  model_name: string
+  total_tokens: number
+  amount: number
+  currency: string
+  balance: number | null
+  freshness: string
 }

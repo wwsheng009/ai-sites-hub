@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"aiclient/internal/adapter"
@@ -17,6 +19,9 @@ type Adapter struct {
 	proxyURL string // 出站代理（Detect 重建 adapter 时沿用）
 	hc       *adapter.HTTPClient
 	log      *slog.Logger
+	// quotaCache 动态缓存（0=未知；首次 /api/status 读取后设置，默认 500000）
+	quotaCache atomic.Int64
+	_puMu      sync.Mutex // 保护 quotaCache 读取/首次写入
 }
 
 // UA 标识。
@@ -72,6 +77,7 @@ func (a *Adapter) Capabilities() adapter.Capabilities {
 		ListKeys:     true,
 		ListGroups:   true,
 		Quota:        true,
+		UsageLogs:    true,
 		PlaintextKey: true, // POST /api/token/:id/key 可取明文
 	}
 }

@@ -1,6 +1,6 @@
 // 按业务域组织的 API 封装（与 Go internal/httpx/router.go 对齐）
 import { del, get, post, put } from './client'
-import type { AffRule, AffTransfer, AffiliateInvitee, DoctorReport, Event, Site, SiteAffiliateOut, SiteCredentialState, SiteGroup, SiteKey, SyncResult } from '../types'
+import type { AffRule, AffTransfer, AffiliateInvitee, DoctorReport, Event, Site, SiteAffiliateOut, SiteAnnouncement, SiteCredentialState, SiteGroup, SiteKey, SiteModel, SyncResult, UsageDaily, UsageLog } from '../types'
 
 // ---- system ----
 export const apiHealth = () => get<{ status: string; version: string }>('/health')
@@ -20,7 +20,7 @@ export const apiCreateSite = (input: { base_url: string; name?: string; proxy_ur
 export const apiGetSite = (id: string) => get<Site>(`/sites/${id}`)
 export const apiUpdateSite = (
   id: string,
-  input: { name?: string; status?: string; site_type?: string; proxy_url?: string | null },
+  input: { name?: string; status?: string; site_type?: string; proxy_url?: string | null; sync_cfg?: string },
 ) => put<Site>(`/sites/${id}`, input)
 export const apiDeleteSite = (id: string) => del<{ deleted: boolean }>(`/sites/${id}`)
 export const apiDetectSite = (id: string) => post<Site>(`/sites/${id}/detect`)
@@ -62,3 +62,31 @@ export const apiListEvents = (q?: { site_id?: string; limit?: number }) => {
   const qs = p.toString()
   return get<Event[]>(`/events${qs ? `?${qs}` : ''}`)
 }
+
+// ---- announcements（FR-4.4；S5）----
+export const apiListAnnouncements = (limit?: number) =>
+  get<SiteAnnouncement[]>(`/announcements${limit ? `?limit=${limit}` : ''}`)
+
+// ---- usage（S2/S3）----
+export const apiListUsageLogs = (siteId: string, q?: { start?: string; end?: string; model?: string; limit?: number }) => {
+  const p = new URLSearchParams()
+  if (q?.start) p.set('start', q.start)
+  if (q?.end) p.set('end', q.end)
+  if (q?.model) p.set('model', q.model)
+  if (q?.limit) p.set('limit', String(q.limit))
+  const qs = p.toString()
+  return get<UsageLog[]>(`/sites/${encodeURIComponent(siteId)}/usage/logs${qs ? `?${qs}` : ''}`)
+}
+export const apiListUsageDaily = (siteId: string, q?: { start?: string; end?: string; model?: string; limit?: number }) => {
+  const p = new URLSearchParams()
+  if (q?.start) p.set('start', q.start)
+  if (q?.end) p.set('end', q.end)
+  if (q?.model) p.set('model', q.model)
+  if (q?.limit) p.set('limit', String(q.limit))
+  const qs = p.toString()
+  return get<UsageDaily[]>(`/sites/${encodeURIComponent(siteId)}/usage/daily${qs ? `?${qs}` : ''}`)
+}
+
+// ---- models（S4）----
+export const apiListSiteModels = (limit?: number) =>
+  get<SiteModel[]>(`/models${limit ? `?limit=${limit}` : ''}`)

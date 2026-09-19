@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { get } from '../api/client'
-import type { DoctorReport, Site, SiteAffiliate } from '../types'
+import { apiDoctor, apiListAffiliates, apiListSites, apiListUsageDaily } from '../api/endpoints'
+import type { DoctorReport, Site, SiteAffiliateOut, UsageDaily } from '../types'
+import { useToast, errMsg } from '../components/Toast'
 
 const checkBadge: Record<string, string> = {
   ok: 'badge-success',
@@ -10,20 +11,45 @@ const checkBadge: Record<string, string> = {
 }
 
 export default function Dashboard() {
+  const toast = useToast()
   const [sites, setSites] = useState<Site[]>([])
-  const [affs, setAffs] = useState<SiteAffiliate[]>([])
+  const [affs, setAffs] = useState<SiteAffiliateOut[]>([])
   const [doctor, setDoctor] = useState<DoctorReport | null>(null)
+  const [daily, setDaily] = useState<Record<string, UsageDaily[]>>({})
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([get<Site[]>('/sites'), get<SiteAffiliate[]>('/affiliates'), get<DoctorReport>('/doctor')])
+    let cancelled = false
+    Promise.all([apiListSites(), apiListAffiliates(), apiDoctor()])
       .then(([s, a, d]) => {
+        if (cancelled) return
         setSites(s)
         setAffs(a)
         setDoctor(d)
+
+        // S3：近 7 天用量趋势（跨站，currency 不合并）
+        const activeSites = s.filter((st) => st.status === 'active' || st.status === 'ok')
+        return Promise.all(
+          activeSites.map((st) =>
+            apiListUsageDaily(st.id, { start: sevenDaysAgo(), end: today(), limit: 30 }).catch(() => []),
+          ),
+        ).then((results) => {
+          const bySite: Record<string, UsageDaily[]> = {}
+          activeSites.forEach((st, i) => {
+            bySite[st.id] = results[i] || []
+          })
+          setDaily(bySite)
+        })
       })
-      .catch((e) => setError(String(e.message ?? e)))
-  }, [])
+      .catch((e) => {
+        const m = errMsg(e)
+        setError(m)
+        toast.error(m)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [toast])
 
   const byType = sites.reduce<Record<string, number>>((m, s) => {
     m[s.site_type] = (m[s.site_type] ?? 0) + 1
@@ -32,6 +58,26 @@ export default function Dashboard() {
 
   const totalAvailable = affs.reduce((sum, a) => sum + (a.available ?? 0), 0)
   const okCount = sites.filter((s) => s.status === 'ok' || s.status === 'active').length
+
+  // S3 日期辅助
+  const today = () => new Date().toISOString().slice(0, 10)
+  const sevenDaysAgo = () => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString().slice(0, 10)
+  }
+
+  // 汇总跨站 daily → 按日期聚合（不同 currency 不合并求和）
+  const trendData = (() => {
+    const byDate: Record<string, { date: string; sites: Record<string, { amount: number; currency: string }> }> = {}
+    Object.entries(daily).forEach(([siteId, days]) => {
+      days.forEach((d) => {
+        if (!byDate[d.day]) byDate[d.day] = { date: d.day, sites: {} }
+        byDate[d.day].sites[siteId] = { amount: d.amount, currency: d.currency }
+      })
+    })
+    return Object.values(byDate).sort((a, b) => (a.date > b.date ? 1 : -1))
+  })()
 
   return (
     <div className="space-y-6">
@@ -112,8 +158,13 @@ export default function Dashboard() {
                   <tbody>
                     {affs.map((a) => (
                       <tr key={a.id}>
-                        <td className="font-medium text-gray-900 dark:text-white">
-                          {sites.find((s) => s.id === a.site_id)?.name ?? a.site_id}
+                        <td>
+                          <Link
+                            to={`/sites/${a.site_id}`}
+                            className="hover:text-primary-600 dark:hover:text-primary-400"
+                          >
+                            {a.site_name || sites.find((s) => s.id === a.site_id)?.name || a.site_id}
+                          </Link>
                         </td>
                         <td>{a.available ?? '—'}</td>
                         <td>{a.history ?? '—'}</td>
@@ -155,6 +206,53 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+
+      {/* S3：近 7 天用量趋势（按站点分组，currency 不合并） */}
+      <section className="card">
+        <div className="card-header flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900 dark:text-white">近 7 天用量趋势</h3>
+          <span className="text-xs text-muted">不同站点/币种不合并求和</span>
+        </div>
+        <div className="card-body">
+          {trendData.length === 0 ? (
+            <div className="empty-state py-8">
+              <span className="text-3xl">📊</span>
+              <span className="empty-state-title">暂无用量数据</span>
+              <span className="empty-state-desc">同步站点后自动获取</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {trendData.map((d) => (
+                <div key={d.date} className="flex items-end gap-4">
+                  <span className="text-xs text-muted whitespace-nowrap w-20">{d.date}</span>
+                  {Object.entries(d.sites).map(([siteId, info]) => {
+                    const site = sites.find((s) => s.id === siteId)
+                    const maxAmount = Math.max(1, ...trendData.flatMap((t) => Object.values(t.sites).map((v) => v.amount)))
+                    const barHeight = Math.max(4, (info.amount / maxAmount) * 60)
+                    return (
+                      <div
+                        key={siteId}
+                        className="flex flex-col items-center"
+                        title={`${site?.name || siteId}: ${info.amount} ${info.currency}`}
+                      >
+                        <div
+                          className="w-8 rounded-t bg-primary-500 dark:bg-primary-400 transition-all"
+                          style={{ height: `${barHeight}px` }}
+                        />
+                        <span className="mt-1 max-w-[80px] truncate text-xs text-muted" title={site?.name || siteId}>
+                          {site?.name || siteId.slice(0, 6)}
+                        </span>
+                        <span className="text-xs font-mono">{info.amount.toFixed(2)}</span>
+                        <span className="text-xs text-muted">{info.currency}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* 站点类型分布 */}
       <section className="card">

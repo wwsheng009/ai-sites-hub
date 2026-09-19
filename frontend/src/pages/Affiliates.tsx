@@ -1,68 +1,84 @@
 import { useCallback, useEffect, useState } from 'react'
-import { get, post, put } from '../api/client'
-import type { AffRule, AffTransfer, Site, SiteAffiliate } from '../types'
+import { Link } from 'react-router-dom'
+import { apiGetAffiliateRule, apiListAffiliates, apiListSites, apiListTransfers, apiPutAffiliateRule, apiTransferAffiliate } from '../api/endpoints'
+import type { AffRule, AffTransfer, Site, SiteAffiliateOut } from '../types'
+import { useToast, errMsg } from '../components/Toast'
+import { timeDisplay } from '../components/ui'
 
 /** 返利中心（FR-10）：全站点返利概览 + 规则配置 + 手动划转 + 记录 */
 
 const transferBadge = (s: string) =>
   s === 'success' ? 'badge-success' : s === 'failed' ? 'badge-danger' : s === 'pending' ? 'badge-warning' : 'badge-muted'
 
+const DEFAULT_RULE: AffRule = { enabled: false, min_amount: 0, max_per_transfer: 0, daily_limit: 1 }
+
 export default function Affiliates() {
+  const toast = useToast()
   const [sites, setSites] = useState<Site[]>([])
-  const [affs, setAffs] = useState<SiteAffiliate[]>([])
+  const [affs, setAffs] = useState<SiteAffiliateOut[]>([])
   const [selected, setSelected] = useState('')
-  const [rule, setRule] = useState<AffRule>({ enabled: false, min_amount: 0, max_per_transfer: 0, daily_limit: 0 })
+  const [rule, setRule] = useState<AffRule>(DEFAULT_RULE)
   const [transfers, setTransfers] = useState<AffTransfer[]>([])
   const [amount, setAmount] = useState('')
   const [dryRun, setDryRun] = useState(true)
-  const [msg, setMsg] = useState('')
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
 
-  const loadRule = useCallback((siteId: string) => {
-    get<AffRule>(`/affiliates/site/${siteId}/rule`).then(setRule).catch(() => {})
-    get<AffTransfer[]>(`/affiliates/site/${siteId}/transfers`).then(setTransfers).catch(() => {})
-  }, [])
+  const loadRule = useCallback(
+    (siteId: string) => {
+      apiGetAffiliateRule(siteId).then(setRule).catch(() => setRule(DEFAULT_RULE))
+      apiListTransfers(siteId).then(setTransfers).catch(() => setTransfers([]))
+    },
+    [],
+  )
+
+  const load = useCallback(async () => {
+    try {
+      const [s, a] = await Promise.all([apiListSites(), apiListAffiliates()])
+      setSites(s)
+      setAffs(a)
+    } catch (e) {
+      toast.error(errMsg(e))
+    }
+  }, [toast])
 
   useEffect(() => {
-    Promise.all([get<Site[]>('/sites'), get<SiteAffiliate[]>('/affiliates')])
-      .then(([s, a]) => {
-        setSites(s)
-        setAffs(a)
-      })
-      .catch((e) => setError(String(e.message ?? e)))
-  }, [])
+    load()
+  }, [load])
 
   useEffect(() => {
     if (selected) loadRule(selected)
   }, [selected, loadRule])
 
   const run = async (fn: () => Promise<unknown>, okMsg: string, tag: string) => {
-    setError('')
-    setMsg('')
     setBusy(tag)
     try {
-      const r = await fn()
-      setMsg(typeof r === 'string' ? r : okMsg)
+      await fn()
+      toast.success(okMsg)
       if (selected) loadRule(selected)
     } catch (e) {
-      setError(String((e as Error).message ?? e))
+      toast.error(errMsg(e))
     } finally {
       setBusy('')
     }
   }
 
-  const saveRule = () => run(() => put(`/affiliates/site/${selected}/rule`, rule), '规则已保存', 'rule')
-  const transfer = () =>
+  const saveRule = () => run(() => apiPutAffiliateRule(selected, rule), '规则已保存', 'rule')
+  const transfer = () => {
+    const n = Number(amount)
+    if (!n || n <= 0) {
+      toast.warning('请输入有效的划转金额')
+      return
+    }
     run(
       () =>
-        post<{ state?: string; message?: string }>(`/affiliates/site/${selected}/transfer`, {
-          amount: Number(amount),
-          dry_run: dryRun,
-        }).then((r) => `划转[${r.state ?? '?'}] ${r.message ?? ''}`),
-      '划转完成',
+        apiTransferAffiliate(selected, { amount: n, dry_run: dryRun }).then((r) => {
+          if (r.state === 'failed') throw new Error(r.message || '划转失败')
+          return r
+        }),
+      dryRun ? '试算完成（dry_run，未实际划转）' : '划转成功',
       'transfer',
     )
+  }
 
   const selectedName = sites.find((s) => s.id === selected)?.name ?? selected
 
@@ -75,9 +91,6 @@ export default function Affiliates() {
           全站点返利概览 · 自动划转规则 · 手动划转（FR-10）
         </p>
       </div>
-
-      {msg && <p className="text-sm text-emerald-600 dark:text-emerald-400">{msg}</p>}
-      {error && <p className="text-error">{error}</p>}
 
       {/* 全站点返利表格 */}
       <section className="card">
@@ -107,14 +120,20 @@ export default function Affiliates() {
                     className={`cursor-pointer ${selected === a.site_id ? 'bg-primary-50/60 dark:bg-primary-900/10' : ''}`}
                   >
                     <td className="font-medium text-gray-900 dark:text-white">
-                      {sites.find((s) => s.id === a.site_id)?.name ?? a.site_id}
+                      <Link
+                        to={`/sites/${a.site_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:text-primary-600 dark:hover:text-primary-400"
+                      >
+                        {a.site_name || sites.find((s) => s.id === a.site_id)?.name || a.site_id}
+                      </Link>
                     </td>
                     <td className="font-mono text-xs">{a.aff_code || '—'}</td>
                     <td>{a.available ?? '—'}</td>
                     <td>{a.frozen ?? '—'}</td>
                     <td>{a.history ?? '—'}</td>
                     <td>{a.invitee_count ?? '—'}</td>
-                    <td className="text-muted whitespace-nowrap">{a.last_sync_at ?? '—'}</td>
+                    <td className="text-muted whitespace-nowrap text-xs">{timeDisplay(a.last_sync_at)}</td>
                   </tr>
                 ))}
                 {affs.length === 0 && (
@@ -184,6 +203,7 @@ export default function Affiliates() {
                 <p className="input-hint">0 = 不限</p>
               </div>
             </div>
+            {rule.last_transfer_date && <p className="input-hint">最近自动划转日期：{rule.last_transfer_date}</p>}
             <button className="btn btn-primary" disabled={!selected || busy === 'rule'} onClick={saveRule}>
               {busy === 'rule' ? '保存中…' : '保存规则'}
             </button>
@@ -211,7 +231,7 @@ export default function Affiliates() {
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">dry_run（仅试算，不执行）</span>
             </label>
             <button className="btn btn-primary" disabled={!selected || !amount || busy === 'transfer'} onClick={transfer}>
-              {busy === 'transfer' ? '执行中…' : '执行划转'}
+              {busy === 'transfer' ? '执行中…' : dryRun ? '试算' : '执行划转'}
             </button>
           </div>
         </section>
@@ -221,6 +241,7 @@ export default function Affiliates() {
       <section className="card">
         <div className="card-header">
           <h3 className="font-semibold text-gray-900 dark:text-white">划转记录（审计留证）</h3>
+          {selected && <p className="mt-0.5 text-xs text-gray-400 dark:text-dark-400">站点：{selectedName}</p>}
         </div>
         <div className="card-body p-0">
           <div className="table-container border-0">
@@ -238,7 +259,9 @@ export default function Affiliates() {
               <tbody>
                 {transfers.map((t) => (
                   <tr key={t.id}>
-                    <td className="text-muted whitespace-nowrap">{t.created_at}</td>
+                    <td className="text-muted whitespace-nowrap text-xs" title={t.created_at}>
+                      {timeDisplay(t.created_at)}
+                    </td>
                     <td className="font-mono text-xs">{t.amount}</td>
                     <td>
                       <span className={`badge ${transferBadge(t.state)}`}>{t.state}</span>
@@ -249,7 +272,9 @@ export default function Affiliates() {
                       </span>
                     </td>
                     <td>{t.amount_before ?? '—'}</td>
-                    <td className="text-muted max-w-xs truncate">{t.message}</td>
+                    <td className="text-muted max-w-xs truncate" title={t.message}>
+                      {t.message}
+                    </td>
                   </tr>
                 ))}
                 {transfers.length === 0 && (
@@ -258,6 +283,7 @@ export default function Affiliates() {
                       <div className="empty-state">
                         <span className="text-3xl">📋</span>
                         <span className="empty-state-title">暂无划转记录</span>
+                        {!selected && <span className="empty-state-desc">选择站点后查看该站划转记录</span>}
                       </div>
                     </td>
                   </tr>

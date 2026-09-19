@@ -143,7 +143,7 @@ aff_transfers(id PK, site_id FK, amount REAL, state CHECK(pending|success|failed
       error_class, message, created_at, finished_at)
 ```
 
-安全列说明：所有 `*_cipher` 列为 AES-GCM 密文（`internal/secret`），密钥来自 `config.security.master_key`（env 覆盖 `AISC_MASTER_KEY`）；日志与 API 默认打码。
+安全列说明：所有 `*_cipher` 列为 AES-GCM 密文（`internal/secret`），密钥来自 `config.security.master_key`（env 覆盖 `AISC_SECURITY_MASTER_KEY`）；日志与 API 默认打码。
 
 ## 4. 站点适配层（核心设计）
 

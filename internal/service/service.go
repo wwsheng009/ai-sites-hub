@@ -169,6 +169,8 @@ type UpdateSiteInput struct {
 	SiteType *string `json:"site_type"`
 	// ProxyURL 出站代理；nil=不修改，空串=清除（回落全局 proxy.url）。
 	ProxyURL *string `json:"proxy_url"`
+	// SyncCfg 同步配置 JSON（FR-4.3；含 checkin.enable 等）。nil=不修改。
+	SyncCfg *string `json:"sync_cfg"`
 }
 
 // UpdateSite 更新站点（人工覆盖 site_type 后识别流程跳过自动判定）。
@@ -206,6 +208,9 @@ func (s *Services) UpdateSite(ctx context.Context, id string, in UpdateSiteInput
 		}
 		if in.ProxyURL != nil {
 			s2.ProxyURL = proxyURL
+		}
+		if in.SyncCfg != nil {
+			s2.SyncCfg = *in.SyncCfg
 		}
 	})
 }
@@ -325,6 +330,11 @@ func (s *Services) authContext(c *model.SiteCredential) adapter.AuthCtx {
 	}
 }
 
+// AuthContext 公开 authContext（供调度器复用）。
+func (s *Services) AuthContext(c *model.SiteCredential) adapter.AuthCtx {
+	return s.authContext(c)
+}
+
 // credentials 组装 adapter.Credentials。
 func (s *Services) credentials(c *model.SiteCredential) adapter.Credentials {
 	return adapter.Credentials{
@@ -423,11 +433,12 @@ func (s *Services) emitEvent(ctx context.Context, siteID, typ, level, msg string
 
 // SyncResult 同步结果摘要。
 type SyncResult struct {
-	SiteID     string   `json:"site_id"`
-	KeysSync   int      `json:"keys_synced"`
-	GroupsSync int      `json:"groups_synced"`
-	Affiliate  bool     `json:"affiliate_synced"`
-	Errors     []string `json:"errors,omitempty"`
+	SiteID        string   `json:"site_id"`
+	KeysSync      int      `json:"keys_synced"`
+	GroupsSync    int      `json:"groups_synced"`
+	Affiliate     bool     `json:"affiliate_synced"`
+	UsageLogsSync int      `json:"usage_logs_synced"`
+	Errors        []string `json:"errors,omitempty"`
 }
 
 // SyncSite 拉取 keys/groups/quota/affiliate → 投影落库 + 快照（FR-4、FR-10.1）。
@@ -516,6 +527,22 @@ func (s *Services) SyncSite(ctx context.Context, siteID string) (*SyncResult, er
 		}
 	}
 
+	// 账号余额（account 域）
+	if caps.Quota {
+		if err := s.SyncAccount(ctx, ad, atx, siteID); err != nil {
+			res.Errors = append(res.Errors, "account: "+err.Error())
+		}
+	}
+
+	// 用量日志（usage_log 域）：游标增量
+	if caps.UsageLogs {
+		if n, err := s.SyncUsageLog(ctx, ad, atx, siteID); err != nil {
+			res.Errors = append(res.Errors, "usage_log: "+err.Error())
+		} else {
+			res.UsageLogsSync = n
+		}
+	}
+
 	level := "info"
 	if len(res.Errors) > 0 {
 		level = "warn"
@@ -553,6 +580,141 @@ func (s *Services) SyncAffiliate(ctx context.Context, ad adapter.SiteAdapter, at
 		_ = s.Repo.InsertSnapshot(ctx, siteID, "affiliates", redactJSON(string(b)), nil)
 	}
 	return nil
+}
+
+// SyncAccount 拉取账号余额 → site_account 投影（FR-4.1；currency 不折算）。
+func (s *Services) SyncAccount(ctx context.Context, ad adapter.SiteAdapter, atx adapter.AuthCtx, siteID string) error {
+	q, err := ad.Quota(ctx, atx)
+	if err != nil {
+		return err
+	}
+	bal := q.Balance
+	used := q.Used
+	row := &model.SiteAccount{
+		SiteID:            siteID,
+		Balance:           &bal,
+		Used:              &used,
+		Currency:          q.Currency,
+		UnitNote:          q.UnitNote,
+		SubscriptionState: "",
+		Freshness:         "fresh",
+	}
+	if err := s.Repo.UpsertAccount(ctx, row); err != nil {
+		return err
+	}
+	if b, jerr := json.Marshal(q); jerr == nil {
+		_ = s.Repo.InsertSnapshot(ctx, siteID, "account", redactJSON(string(b)), nil)
+	}
+	return nil
+}
+
+// AggregateUsageDaily 汇总指定日期的 usage_logs → usage_daily（S3）。
+func (s *Services) AggregateUsageDaily(ctx context.Context, siteID, day string) (int, error) {
+	return s.Repo.AggregateUsageDaily(ctx, siteID, day)
+}
+
+// ListUsageDaily 跨站日聚合查询（用于 Dashboard）。
+func (s *Services) ListUsageDaily(ctx context.Context, siteID, since, until, modelName string, limit int) ([]model.UsageDaily, error) {
+	return s.Repo.ListUsageDaily(ctx, siteID, since, until, modelName, limit)
+}
+
+// ListSiteModels 模型广场聚合（S4）：跨站已用模型 + 余额。
+func (s *Services) ListSiteModels(ctx context.Context, limit int) ([]model.SiteModel, error) {
+	return s.Repo.ListSiteModels(ctx, limit)
+}
+
+// ListAnnouncements 跨站公告聚合（S5；FR-4.4）。
+func (s *Services) ListAnnouncements(ctx context.Context, limit int) ([]model.SiteAnnouncement, error) {
+	return s.Repo.ListAnnouncements(ctx, limit)
+}
+
+// SyncCheckin 执行单日签到（FR-3）：查询状态 → 必要时执行 → 记录 checkins。
+func (s *Services) SyncCheckin(ctx context.Context, ad adapter.SiteAdapter, atx adapter.AuthCtx, siteID string) error {
+	if ad.Capabilities().Checkin != adapter.CapSupported {
+		return nil
+	}
+	st, err := ad.CheckinStatus(ctx, atx)
+	if err != nil {
+		return err
+	}
+	if st.State == adapter.CheckinAlready {
+		_ = s.Repo.UpsertCheckin(ctx, &model.SiteCheckin{
+			SiteID: siteID, Date: time.Now().UTC().Format("2006-01-02"),
+			State: string(st.State), Message: st.Message,
+		})
+		return nil
+	}
+	res, err := ad.Checkin(ctx, atx)
+	if err != nil {
+		return err
+	}
+	var qa *float64
+	if res.QuotaAwarded > 0 {
+		v := res.QuotaAwarded
+		qa = &v
+	}
+	return s.Repo.UpsertCheckin(ctx, &model.SiteCheckin{
+		SiteID: siteID, Date: time.Now().UTC().Format("2006-01-02"),
+		State: string(res.State), QuotaAwarded: qa, Message: res.Message,
+	})
+}
+
+// ListUsageLogs 站点用量日志查询（Dashboard 明细）。
+func (s *Services) ListUsageLogs(ctx context.Context, siteID string, since, until time.Time, modelName string, limit int) ([]model.UsageLog, error) {
+	return s.Repo.ListUsageLogs(ctx, siteID, since, until, modelName, limit)
+}
+
+// SyncUsageLog 游标增量拉取用量日志 → usage_logs 投影（S2）。
+// cursor 存于 site_sync_state.cursor（JSON {"since":"<RFC3339>"}），newapi 秒级 / sub2api 按日。
+func (s *Services) SyncUsageLog(ctx context.Context, ad adapter.SiteAdapter, atx adapter.AuthCtx, siteID string) (int, error) {
+	since := time.Now().Add(-24 * time.Hour).UTC()
+	if st, err := s.Repo.GetSyncState(ctx, siteID, "usage_log"); err == nil {
+		var cur struct {
+			Since string `json:"since"`
+		}
+		if err := json.Unmarshal([]byte(st.Cursor), &cur); err == nil && cur.Since != "" {
+			if t, perr := time.Parse(time.RFC3339, cur.Since); perr == nil {
+				since = t
+			}
+		}
+	}
+	logs, err := ad.UsageLogs(ctx, atx, since)
+	if err != nil {
+		return 0, err
+	}
+	rows := make([]model.UsageLog, 0, len(logs))
+	for _, l := range logs {
+		rows = append(rows, model.UsageLog{
+			RemoteRef:        l.RemoteRef,
+			Timestamp:        l.Timestamp,
+			ModelName:        l.ModelName,
+			ApiKeyID:         l.ApiKeyID,
+			ApiKeyMask:       l.ApiKeyMask,
+			PromptTokens:     l.PromptTokens,
+			CompletionTokens: l.CompletionTokens,
+			TotalTokens:      l.TotalTokens,
+			Amount:           l.Amount,
+			Currency:         l.Currency,
+			Status:           l.Status,
+			ErrCode:          l.ErrCode,
+		})
+	}
+	n, err := s.Repo.InsertUsageLogs(ctx, siteID, rows)
+	if err != nil {
+		return 0, err
+	}
+	// 更新游标为本批最晚时间
+	if len(logs) > 0 {
+		last := since
+		for _, l := range logs {
+			if l.Timestamp.After(last) {
+				last = l.Timestamp
+			}
+		}
+		cur, _ := json.Marshal(map[string]string{"since": last.UTC().Format(time.RFC3339)})
+		_ = s.Repo.MarkSyncStateRun(ctx, siteID, "usage_log", true, "", strPtr(string(cur)), nil)
+	}
+	return n, nil
 }
 
 // redactJSON 快照脱敏：对疑似 token/password 字段打码（NFR-3）。
@@ -809,6 +971,16 @@ func (s *Services) ListKeys(ctx context.Context, siteID string) ([]model.SiteKey
 // ListGroups 分组汇总。
 func (s *Services) ListGroups(ctx context.Context, siteID string) ([]model.SiteGroup, error) {
 	return s.Repo.ListGroups(ctx, siteID)
+}
+
+// GetAccount 单站账号余额投影。
+func (s *Services) GetAccount(ctx context.Context, siteID string) (*model.SiteAccount, error) {
+	return s.Repo.GetAccount(ctx, siteID)
+}
+
+// ListAccounts 跨站账号余额投影。
+func (s *Services) ListAccounts(ctx context.Context) ([]model.SiteAccount, error) {
+	return s.Repo.ListAccounts(ctx)
 }
 
 // ListEvents 事件流水。

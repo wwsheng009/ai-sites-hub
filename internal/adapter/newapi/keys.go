@@ -141,17 +141,18 @@ func (a *Adapter) ListGroups(ctx context.Context, atx adapter.AuthCtx) ([]adapte
 	return groups, nil
 }
 
-// QuotaNew 用户 DTO 额度（quota 原始单位，500000 = 1 USD）。
+// Quota 账号级额度（quota_per_unit 动态读取；默认 500000 仅 fallback）。
 func (a *Adapter) Quota(ctx context.Context, atx adapter.AuthCtx) (adapter.AccountQuota, error) {
 	self, err := a.fetchSelf(ctx, atx)
 	if err != nil {
 		return adapter.AccountQuota{}, err
 	}
+	pu := a.quotaPerUnit(ctx, atx)
 	return adapter.AccountQuota{
-		Balance:    quotaToUSD(self.Quota),
-		Used:       quotaToUSD(self.UsedQuota),
+		Balance:    float64(self.Quota) / float64(pu),
+		Used:       float64(self.UsedQuota) / float64(pu),
 		Currency:   "USD",
-		UnitNote:   "new-api quota 原始单位 500000=1USD，已换算展示",
+		UnitNote:   "new-api quota 原始单位按 /api/status quota_per_unit 换算",
 		HasBalance: true,
 		HasUsed:    true,
 	}, nil
@@ -218,15 +219,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// quotaToUSD new-api 原始 quota → USD（500000 quota = 1 USD）。
-func quotaToUSD(q int64) float64 {
-	return float64(q) / 500000.0
-}
-
-// usdToQuota USD → 原始 quota（划转入参用）。
-func usdToQuota(usd float64) int64 {
-	return int64(usd*500000.0 + 0.5)
-}
+// ---- 共用 ----
 
 func tsToTime(ts int64) time.Time {
 	return time.Unix(ts, 0)

@@ -73,6 +73,7 @@ func (a *Adapter) Capabilities() adapter.Capabilities {
 		ListKeys:     true,
 		ListGroups:   true,
 		Quota:        true,
+		UsageLogs:    true,
 		PlaintextKey: false, // 列表即明文，无需单独取
 	}
 }

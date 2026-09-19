@@ -68,6 +68,22 @@ type AccountQuota struct {
 	HasUsed    bool    `json:"has_used"`
 }
 
+// UsageLog 单条调用日志（归一化；currency 仅标明，不折算）。
+type UsageLog struct {
+	RemoteRef        string    `json:"remote_ref"` // 上游日志 id / request_id
+	Timestamp        time.Time `json:"ts"`         // 调用时间
+	ModelName        string    `json:"model_name"`
+	ApiKeyID         string    `json:"api_key_id"`
+	ApiKeyMask       string    `json:"api_key_mask"` // 打码
+	PromptTokens     int64     `json:"prompt_tokens"`
+	CompletionTokens int64     `json:"completion_tokens"`
+	TotalTokens      int64     `json:"total_tokens"`
+	Amount           float64   `json:"amount"`   // 计费金额（站点币）
+	Currency         string    `json:"currency"` // 单位说明，不折算
+	Status           string    `json:"status"`   // ok|err|abort
+	ErrCode          string    `json:"err_code"`
+}
+
 // AffiliateInvitee 受邀用户条目（归一化；email 已由上游脱敏）。
 type AffiliateInvitee struct {
 	UserID      int64      `json:"user_id"`
@@ -134,6 +150,7 @@ type Capabilities struct {
 	ListKeys     bool   `json:"list_keys"`
 	ListGroups   bool   `json:"list_groups"`
 	Quota        bool   `json:"quota"`
+	UsageLogs    bool   `json:"usage_logs"`    // 是否支持用量日志增量
 	PlaintextKey bool   `json:"plaintext_key"` // 是否能取明文 key
 }
 
@@ -202,6 +219,8 @@ type SiteAdapter interface {
 	ListKeys(ctx context.Context, a AuthCtx, page Page) (KeyPage, error)
 	ListGroups(ctx context.Context, a AuthCtx) ([]Group, error)
 	Quota(ctx context.Context, a AuthCtx) (AccountQuota, error)
+	// UsageLogs 游标增量（newapi /api/log/self?start_timestamp；sub2api /api/v1/usage?start_date）。
+	UsageLogs(ctx context.Context, a AuthCtx, since time.Time) ([]UsageLog, error)
 
 	// 站点返利（FR-10；Capabilities.Affiliate gate，unsupported 返回错误不再重试）
 	AffiliateInfo(ctx context.Context, a AuthCtx) (AffiliateInfo, error)

@@ -4,6 +4,7 @@ package svcwire
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -24,8 +25,9 @@ import (
 
 // Wire 组装结果（store/cipher 句柄供未来 jobs 复用）。
 type Wire struct {
-	Services *service.Services
-	Log      *slog.Logger
+	Services  *service.Services
+	Log       *slog.Logger
+	Scheduler *service.SyncScheduler
 
 	db     *store.DB
 	cipher *secret.Cipher
@@ -46,6 +48,19 @@ func New(cfg *config.Config) (*Wire, error) {
 	st, err := store.Open(cfg.Database.Path)
 	if err != nil {
 		return nil, err
+	}
+
+	// 自动应用未执行的迁移（migrations/*.sql），避免因忘记手动执行 `aiclient migrate`
+	// 导致表缺失（如 site_announcements）而 500 错误。
+	if cfg.Database.AutoMigrate {
+		applied, err := st.Migrate(context.Background(), "migrations")
+		if err != nil {
+			_ = st.Close()
+			return nil, fmt.Errorf("svcwire: 自动迁移失败: %w", err)
+		}
+		if len(applied) > 0 {
+			log.Info("自动应用数据库迁移", "files", applied)
+		}
 	}
 
 	var cipher *secret.Cipher
@@ -75,7 +90,9 @@ func New(cfg *config.Config) (*Wire, error) {
 		Log:         log,
 		GlobalProxy: strings.TrimSpace(cfg.Proxy.URL),
 	}
-	return &Wire{Services: svcs, Log: log, db: st, cipher: cipher}, nil
+	w := &Wire{Services: svcs, Log: log, db: st, cipher: cipher}
+	w.Scheduler = service.NewSyncScheduler(reg, rep, svcs, log)
+	return w, nil
 }
 
 // MigrateDir 迁移目录（供 cmd migrate 使用）。

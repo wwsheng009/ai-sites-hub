@@ -15,11 +15,21 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/v1${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
-  const body = (await res.json()) as ApiResponse<T>
+  let res: Response
+  try {
+    res = await fetch(`/api/v1${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    })
+  } catch {
+    throw new ApiError('network', '网络请求失败，请检查后端服务是否运行')
+  }
+  let body: ApiResponse<T>
+  try {
+    body = (await res.json()) as ApiResponse<T>
+  } catch {
+    throw new ApiError(res.status, `HTTP ${res.status}（响应不是合法 JSON）`)
+  }
   if (body.code !== 0) {
     throw new ApiError(body.code, body.message || `HTTP ${res.status}`)
   }

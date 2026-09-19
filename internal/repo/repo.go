@@ -471,3 +471,377 @@ func (r *Repo) ListEvents(ctx context.Context, since *time.Time, siteID string, 
 	}
 	return out, nil
 }
+
+// ---- SiteSyncState（调度器）----
+
+// SyncStateRow site_sync_state 查询/写入行。
+type SyncStateRow struct {
+	ID                  string
+	SiteID              string
+	Domain              string
+	Enabled             int
+	IntervalS           int
+	LastRunAt           *time.Time
+	NextRunAt           *time.Time
+	Cursor              string
+	Fingerprint         string
+	ConsecutiveFailures int
+	LastErrorClass      string
+}
+
+// GetSyncState 按站点+域查询调度状态行。
+func (r *Repo) GetSyncState(ctx context.Context, siteID, domain string) (*model.SiteSyncState, error) {
+	var row model.SiteSyncState
+	if err := r.db.WithContext(ctx).First(&row, "site_id = ? AND domain = ?", siteID, domain).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("repo: 查询调度状态: %w", err)
+	}
+	return &row, nil
+}
+
+// ListSyncStateDue 读取 next_run_at <= now 的所有域（调度器 tick 用）。
+func (r *Repo) ListSyncStateDue(ctx context.Context, now time.Time) ([]SyncStateRow, error) {
+	var out []SyncStateRow
+	if err := r.db.WithContext(ctx).Model(&model.SiteSyncState{}).
+		Where("next_run_at IS NULL OR next_run_at <= ?", now).
+		Order("site_id, domain").Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 读取待调度: %w", err)
+	}
+	return out, nil
+}
+
+// UpsertSyncState 写入/更新调度状态行。
+func (r *Repo) UpsertSyncState(ctx context.Context, row *model.SiteSyncState) error {
+	var existing model.SiteSyncState
+	err := r.db.WithContext(ctx).First(&existing, "site_id = ? AND domain = ?", row.SiteID, row.Domain).Error
+	now := time.Now()
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		row.ID = newID()
+		row.LastRunAt = nil
+		row.NextRunAt = &now
+		if err := r.db.WithContext(ctx).Create(row).Error; err != nil {
+			return fmt.Errorf("repo: 创建调度状态: %w", err)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("repo: 查询调度状态: %w", err)
+	}
+	row.ID = existing.ID
+	if err := r.db.WithContext(ctx).Model(&model.SiteSyncState{}).
+		Where("site_id = ? AND domain = ?", row.SiteID, row.Domain).
+		Updates(map[string]any{
+			"enabled":              row.Enabled,
+			"interval_s":           row.IntervalS,
+			"last_run_at":          row.LastRunAt,
+			"next_run_at":          row.NextRunAt,
+			"cursor":               row.Cursor,
+			"fingerprint":          row.Fingerprint,
+			"consecutive_failures": row.ConsecutiveFailures,
+			"last_error_class":     row.LastErrorClass,
+		}).Error; err != nil {
+		return fmt.Errorf("repo: 更新调度状态: %w", err)
+	}
+	return nil
+}
+
+// MarkSyncStateRun 更新本次运行结果（成功/失败 + 退避）。
+func (r *Repo) MarkSyncStateRun(ctx context.Context, siteID, domain string, success bool, errClass string, cursor, fingerprint *string) error {
+	var row model.SiteSyncState
+	if err := r.db.WithContext(ctx).First(&row, "site_id = ? AND domain = ?", siteID, domain).Error; err != nil {
+		return fmt.Errorf("repo: 查询调度状态: %w", err)
+	}
+	now := time.Now()
+	updates := map[string]any{
+		"last_run_at": &now,
+		"cursor":      coalesceStrPtr(cursor, row.Cursor),
+		"fingerprint": coalesceStrPtr(fingerprint, row.Fingerprint),
+	}
+	if success {
+		row.ConsecutiveFailures = 0
+		row.LastErrorClass = ""
+		updates["consecutive_failures"] = 0
+		updates["last_error_class"] = ""
+		// next_run = now + interval
+		next := now.Add(time.Duration(row.IntervalS) * time.Second)
+		updates["next_run_at"] = &next
+	} else {
+		row.ConsecutiveFailures++
+		row.LastErrorClass = errClass
+		updates["consecutive_failures"] = row.ConsecutiveFailures
+		updates["last_error_class"] = errClass
+		backoff := time.Duration(1<<min(row.ConsecutiveFailures, 12)) * time.Second
+		if backoff > time.Hour {
+			backoff = time.Hour
+		}
+		next := now.Add(backoff)
+		updates["next_run_at"] = &next
+	}
+	return r.db.WithContext(ctx).Model(&row).Updates(updates).Error
+}
+
+func coalesceStrPtr(a *string, b string) string {
+	if a != nil {
+		return *a
+	}
+	return b
+}
+
+// ---- SiteAccount ----
+
+// UpsertAccount 写入账号余额投影。
+func (r *Repo) UpsertAccount(ctx context.Context, a *model.SiteAccount) error {
+	var existing model.SiteAccount
+	err := r.db.WithContext(ctx).First(&existing, "site_id = ?", a.SiteID).Error
+	now := time.Now()
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		a.Freshness = "fresh"
+		a.LastSyncAt = &now
+		if err := r.db.WithContext(ctx).Create(a).Error; err != nil {
+			return fmt.Errorf("repo: 创建账号投影: %w", err)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("repo: 查询账号投影: %w", err)
+	}
+	a.Freshness = "fresh"
+	a.LastSyncAt = &now
+	if err := r.db.WithContext(ctx).Model(&model.SiteAccount{}).
+		Where("site_id = ?", a.SiteID).
+		Updates(map[string]any{
+			"balance":            a.Balance,
+			"used":               a.Used,
+			"currency":           a.Currency,
+			"unit_note":          a.UnitNote,
+			"subscription_state": a.SubscriptionState,
+			"freshness":          a.Freshness,
+			"last_sync_at":       now,
+		}).Error; err != nil {
+		return fmt.Errorf("repo: 更新账号投影: %w", err)
+	}
+	return nil
+}
+
+// GetAccount 按站点查询账号余额投影。
+func (r *Repo) GetAccount(ctx context.Context, siteID string) (*model.SiteAccount, error) {
+	var a model.SiteAccount
+	if err := r.db.WithContext(ctx).First(&a, "site_id = ?", siteID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("repo: 查询账号投影: %w", err)
+	}
+	return &a, nil
+}
+
+// ListAccounts 跨站账号余额投影。
+func (r *Repo) ListAccounts(ctx context.Context) ([]model.SiteAccount, error) {
+	var out []model.SiteAccount
+	if err := r.db.WithContext(ctx).Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 账号列表: %w", err)
+	}
+	return out, nil
+}
+
+// ---- usage logs（S2）----
+
+// InsertUsageLogs 批量写入用量日志（幂等 upsert；remote_ref 为空时回退哈希去重）。
+func (r *Repo) InsertUsageLogs(ctx context.Context, siteID string, logs []model.UsageLog) (int, error) {
+	if len(logs) == 0 {
+		return 0, nil
+	}
+	now := time.Now().UTC()
+	rows := make([]model.UsageLog, 0, len(logs))
+	for _, l := range logs {
+		if l.ID == "" {
+			l.ID = uuid.NewString()
+		}
+		l.SiteID = siteID
+		l.FetchedAt = now
+		rows = append(rows, l)
+	}
+	// 分批 upsert（sqlite 单事务限制），batch=200
+	const batch = 200
+	affected := 0
+	for i := 0; i < len(rows); i += batch {
+		end := i + batch
+		if end > len(rows) {
+			end = len(rows)
+		}
+		tx := r.db.WithContext(ctx).Begin()
+		batchRows := rows[i:end]
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "site_id"}, {Name: "remote_ref"}},
+			DoUpdates: clause.AssignmentColumns([]string{"ts", "model_name", "api_key_id", "api_key_mask", "prompt_tokens", "completion_tokens", "total_tokens", "amount", "currency", "status", "err_code", "fetched_at"}),
+		}).Create(&batchRows).Error; err != nil {
+			_ = tx.Rollback()
+			return affected, fmt.Errorf("repo: 写入 usage_logs: %w", err)
+		}
+		_ = tx.Commit()
+		affected += end - i
+	}
+	return affected, nil
+}
+
+// ListUsageLogs 查询站点用量日志（按时间范围 + 模型过滤）。
+func (r *Repo) ListUsageLogs(ctx context.Context, siteID string, since, until time.Time, modelName string, limit int) ([]model.UsageLog, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	tx := r.db.WithContext(ctx).Model(&model.UsageLog{}).Where("site_id = ?", siteID)
+	if !since.IsZero() {
+		tx = tx.Where("ts >= ?", since)
+	}
+	if !until.IsZero() {
+		tx = tx.Where("ts <= ?", until)
+	}
+	if modelName != "" {
+		tx = tx.Where("model_name = ?", modelName)
+	}
+	var out []model.UsageLog
+	if err := tx.Order("ts DESC").Limit(limit).Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 查询 usage_logs: %w", err)
+	}
+	return out, nil
+}
+
+// ListSiteModels 模型广场聚合（S4）：跨站已用模型 + 余额。
+// 从 usage_daily 汇总 + site_account 余额左连接，仅含已同步站点。
+func (r *Repo) ListSiteModels(ctx context.Context, limit int) ([]model.SiteModel, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	const sql = `SELECT s.id AS site_id, s.name AS site_name, u.model_name,
+       COALESCE(SUM(u.total_tokens),0) AS total_tokens,
+       COALESCE(SUM(u.amount),0) AS amount,
+       COALESCE(u.currency,'quota') AS currency,
+       a.balance AS balance,
+       COALESCE(a.freshness,'missing') AS freshness
+FROM sites s
+JOIN usage_daily u ON u.site_id = s.id
+LEFT JOIN site_account a ON a.site_id = s.id
+GROUP BY s.id, s.name, u.model_name, u.currency, a.balance, a.freshness
+ORDER BY total_tokens DESC
+LIMIT ?`
+	var out []model.SiteModel
+	if err := r.db.WithContext(ctx).Raw(sql, limit).Scan(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 模型广场聚合: %w", err)
+	}
+	return out, nil
+}
+
+// ---- announcements（S5）----
+
+// ListAnnouncements 跨站公告聚合（按发布时间倒序）。
+func (r *Repo) ListAnnouncements(ctx context.Context, limit int) ([]model.SiteAnnouncement, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	var out []model.SiteAnnouncement
+	if err := r.db.WithContext(ctx).Model(&model.SiteAnnouncement{}).
+		Order("published_at DESC, created_at DESC").Limit(limit).Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 查询公告: %w", err)
+	}
+	return out, nil
+}
+
+// UpsertAnnouncement 公告幂等写入（remote_ref 或 content_hash 去重）。
+func (r *Repo) UpsertAnnouncement(ctx context.Context, a *model.SiteAnnouncement) error {
+	a.ID = newID()
+	a.UpdatedAt = time.Now()
+	if err := r.db.WithContext(ctx).Create(a).Error; err != nil {
+		// 唯一键冲突 → 退化为更新已有行
+		var set = map[string]any{
+			"title":        a.Title,
+			"content":      a.Content,
+			"content_hash": a.ContentHash,
+			"published_at": a.PublishedAt,
+			"updated_at":   a.UpdatedAt,
+		}
+		if err := r.db.WithContext(ctx).Model(&model.SiteAnnouncement{}).
+			Where("site_id = ? AND (remote_ref = ? OR content_hash = ?)", a.SiteID, a.RemoteRef, a.ContentHash).
+			Updates(set).Error; err != nil {
+			return fmt.Errorf("repo: upsert 公告: %w", err)
+		}
+	}
+	return nil
+}
+
+// ---- checkin（FR-3）----
+
+// UpsertCheckin 签到记录幂等写入（UNIQUE(site_id, date)）。
+func (r *Repo) UpsertCheckin(ctx context.Context, c *model.SiteCheckin) error {
+	c.ID = newID()
+	c.CreatedAt = time.Now()
+	if err := r.db.WithContext(ctx).Create(c).Error; err != nil {
+		var set = map[string]any{
+			"state":         c.State,
+			"quota_awarded": c.QuotaAwarded,
+			"message":       c.Message,
+			"created_at":    c.CreatedAt,
+		}
+		if err := r.db.WithContext(ctx).Model(&model.SiteCheckin{}).
+			Where("site_id = ? AND date = ?", c.SiteID, c.Date).
+			Updates(set).Error; err != nil {
+			return fmt.Errorf("repo: upsert 签到: %w", err)
+		}
+	}
+	return nil
+}
+
+// AggregateUsageDaily 按 day + model_name 汇总 usage_logs → usage_daily（幂等 upsert）。
+func (r *Repo) AggregateUsageDaily(ctx context.Context, siteID, day string) (int, error) {
+	const aggSQL = `INSERT INTO usage_daily (id, site_id, day, model_name, prompt_tokens, completion_tokens, total_tokens, amount, currency)
+SELECT ?, ?, ?, COALESCE(model_name,''),
+       SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(amount), 'quota'
+FROM usage_logs
+WHERE site_id = ? AND date(ts) = ?
+GROUP BY COALESCE(model_name,'')
+ON CONFLICT(site_id, day, model_name) DO UPDATE SET
+  prompt_tokens = excluded.prompt_tokens,
+  completion_tokens = excluded.completion_tokens,
+  total_tokens = excluded.total_tokens,
+  amount = excluded.amount;`
+	res := r.db.WithContext(ctx).Exec(aggSQL, newID(), siteID, day, siteID, day)
+	if res.Error != nil {
+		return 0, fmt.Errorf("repo: 汇总 usage_daily: %w", res.Error)
+	}
+	return int(res.RowsAffected), nil
+}
+
+// ListUsageDaily 查询站点日聚合（按日期范围 + 模型过滤）。
+func (r *Repo) ListUsageDaily(ctx context.Context, siteID, since, until, modelName string, limit int) ([]model.UsageDaily, error) {
+	if limit <= 0 {
+		limit = 60
+	}
+	if limit > 366 {
+		limit = 366
+	}
+	tx := r.db.WithContext(ctx).Model(&model.UsageDaily{}).Where("site_id = ?", siteID)
+	if since != "" {
+		tx = tx.Where("day >= ?", since)
+	}
+	if until != "" {
+		tx = tx.Where("day <= ?", until)
+	}
+	if modelName != "" {
+		tx = tx.Where("model_name = ?", modelName)
+	}
+	var out []model.UsageDaily
+	if err := tx.Order("day DESC").Limit(limit).Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("repo: 查询 usage_daily: %w", err)
+	}
+	return out, nil
+}

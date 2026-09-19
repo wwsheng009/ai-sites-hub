@@ -40,6 +40,21 @@ func SetupRouter(svc *service.Services) *gin.Engine {
 	v1.GET("/keys", api.ListKeys)
 	v1.GET("/groups", api.ListGroups)
 
+	// account（FR-4.1）
+	v1.GET("/account", api.GetAccount)
+	v1.GET("/accounts", api.ListAccounts)
+
+	// usage logs（FR-4.3，S2/S3）
+	v1.GET("/sites/:id/usage/logs", api.ListUsageLogs)
+	v1.GET("/sites/:id/usage/daily", api.ListUsageDaily)
+	v1.POST("/sites/:id/usage/daily", api.AggregateUsageDaily)
+
+	// models square（S4）
+	v1.GET("/models", api.ListSiteModels)
+
+	// announcements（S5；FR-4.4）
+	v1.GET("/announcements", api.ListAnnouncements)
+
 	// affiliates（FR-10）
 	v1.GET("/affiliates", api.ListAffiliates)
 	v1.GET("/affiliates/site/:siteId", api.GetAffiliate)
@@ -121,6 +136,8 @@ type updateSiteReq struct {
 	SiteType *string `json:"site_type"`
 	// ProxyURL 出站代理；nil=不修改，空串=清除（回落全局 proxy.url）。
 	ProxyURL *string `json:"proxy_url"`
+	// SyncCfg 同步配置 JSON（FR-4.3；含 checkin.enable 等）。nil=不修改。
+	SyncCfg *string `json:"sync_cfg"`
 }
 
 // UpdateSite PUT /api/v1/sites/:id。
@@ -131,7 +148,7 @@ func (a *API) UpdateSite(c *gin.Context) {
 		return
 	}
 	site, err := a.Svc.UpdateSite(c.Request.Context(), c.Param("id"), service.UpdateSiteInput{
-		Name: req.Name, Status: req.Status, SiteType: req.SiteType, ProxyURL: req.ProxyURL,
+		Name: req.Name, Status: req.Status, SiteType: req.SiteType, ProxyURL: req.ProxyURL, SyncCfg: req.SyncCfg,
 	})
 	if err != nil {
 		Fail(c, err)
@@ -246,6 +263,33 @@ func (a *API) ListGroups(c *gin.Context) {
 		return
 	}
 	OK(c, groups)
+}
+
+// ---- account（FR-4.1）----
+
+// GetAccount GET /api/v1/account?site_id=
+func (a *API) GetAccount(c *gin.Context) {
+	siteID := c.Query("site_id")
+	if siteID == "" {
+		Fail(c, BadReq("缺少 site_id"))
+		return
+	}
+	row, err := a.Svc.GetAccount(c.Request.Context(), siteID)
+	if err != nil {
+		Fail(c, err)
+		return
+	}
+	OK(c, row)
+}
+
+// ListAccounts GET /api/v1/accounts
+func (a *API) ListAccounts(c *gin.Context) {
+	rows, err := a.Svc.ListAccounts(c.Request.Context())
+	if err != nil {
+		Fail(c, err)
+		return
+	}
+	OK(c, rows)
 }
 
 // ---- affiliates（FR-10）----

@@ -28,8 +28,8 @@ func (a *Adapter) AffiliateInfo(ctx context.Context, atx adapter.AuthCtx) (adapt
 	if err != nil {
 		return adapter.AffiliateInfo{}, err
 	}
-	avail := quotaToUSD(self.AffQuota)
-	hist := quotaToUSD(self.AffHistory)
+	avail := a.quotaToUSD(self.AffQuota)
+	hist := a.quotaToUSD(self.AffHistory)
 	info.Available = &avail
 	info.History = &hist
 	info.InviteeCount = &self.AffCount
@@ -67,8 +67,8 @@ func (a *Adapter) TransferAffiliate(ctx context.Context, atx adapter.AuthCtx, am
 		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUpstreamError, "划转金额必须大于 0", nil)
 	}
 
-	// 统一入参 USD → 原始 quota（quasi 精度；上游整数 quota）
-	quota := usdToQuota(amount.Value)
+	// 统一入参 USD → 原始 quota（按当前系数）
+	quota := a.usdToQuota(amount.Value)
 	if quota <= 0 {
 		return adapter.TransferResult{}, adapter.NewErr(adapter.CodeUpstreamError, "金额过小，换算后 quota 为 0", nil)
 	}
@@ -76,7 +76,7 @@ func (a *Adapter) TransferAffiliate(ctx context.Context, atx adapter.AuthCtx, am
 	// 划转前余额（留证 amount_before）
 	var before float64
 	if self, err := a.fetchSelf(ctx, atx); err == nil {
-		before = quotaToUSD(self.AffQuota)
+		before = a.quotaToUSD(self.AffQuota)
 	}
 
 	var env apiEnvelope
@@ -160,7 +160,7 @@ func (a *Adapter) Checkin(ctx context.Context, atx adapter.AuthCtx) (adapter.Che
 	}
 	return adapter.CheckinResult{
 		State:        adapter.CheckinSuccess,
-		QuotaAwarded: quotaToUSD(data.QuotaAwarded),
+		QuotaAwarded: a.quotaToUSD(data.QuotaAwarded),
 		Message:      fmt.Sprintf("签到成功 date=%s", data.CheckinDate),
 	}, nil
 }

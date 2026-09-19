@@ -3,6 +3,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -37,6 +39,9 @@ type SecurityConfig struct {
 
 type DatabaseConfig struct {
 	Path string `mapstructure:"path"`
+	// AutoMigrate 启动时自动应用 migrations/*.sql 的未应用迁移（默认 true）。
+	// 设为 false 时需手动运行 `aiclient migrate`。
+	AutoMigrate bool `mapstructure:"auto_migrate"`
 }
 
 type LogConfig struct {
@@ -49,7 +54,10 @@ type JobsConfig struct {
 	DryRunDefault bool `mapstructure:"dry_run_default"`
 }
 
-// Load 读取配置。path 为空时按 config.yaml → config.example.yaml 顺序查找（均不存在则用默认值）。
+// Load 读取配置。path 非空时读单个文件；为空时按优先级从低到高合并查找：
+// config.example.yaml → config.yaml → config.local.yaml（根目录与 configs/ 都找，根目录优先），
+// 高优先级文件的同名键覆盖低优先级；全部不存在时用默认值。
+// 所有键均可被 AISC_ 前缀环境变量覆盖（如 AISC_SECURITY_MASTER_KEY）。
 func Load(path string) (*Config, error) {
 	v := viper.New()
 	v.SetEnvPrefix("AISC")
@@ -64,16 +72,15 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("读取配置 %s: %w", path, err)
 		}
 	} else {
-		v.SetConfigName("config")
-		v.SetConfigType("yaml")
-		v.AddConfigPath(".")
-		v.AddConfigPath("configs")
-		if err := v.ReadInConfig(); err != nil {
-			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-				return nil, fmt.Errorf("读取配置: %w", err)
+		// 候选文件按优先级从低到高依次合并（后合并者覆盖先合并者的同名键）。
+		// 合并走 viper 的 config 层，AISC_ 环境变量的覆盖优先级仍高于文件。
+		for _, p := range searchCandidates() {
+			v.SetConfigFile(p)
+			if err := v.MergeInConfig(); err != nil {
+				return nil, fmt.Errorf("合并配置 %s: %w", p, err)
 			}
-			// 无 config.yaml：用默认值继续（doctor 会提示）
 		}
+		// 一个候选都不存在：用默认值继续（doctor 会提示）
 	}
 
 	var cfg Config
@@ -83,10 +90,26 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// searchCandidates 返回存在的候选配置文件，按优先级从低到高排列：
+// 同名文件根目录优先于 configs/；文件类型优先级 example < config < config.local。
+func searchCandidates() []string {
+	var found []string
+	for _, name := range []string{"config.example.yaml", "config.yaml", "config.local.yaml"} {
+		for _, dir := range []string{"configs", "."} {
+			p := filepath.Join(dir, name)
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				found = append(found, p)
+			}
+		}
+	}
+	return found
+}
+
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.addr", ":8080")
 	v.SetDefault("security.master_key", "")
 	v.SetDefault("database.path", "data/aiclient.db")
+	v.SetDefault("database.auto_migrate", true)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("jobs.enabled", false)

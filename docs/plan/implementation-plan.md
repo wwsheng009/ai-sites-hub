@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | 2.1 | Go 工程初始化：`cmd/aiclient`、cobra、zap、Viper 配置加载（YAML+env） | `go build` 通过；`aiclient version` |
 | 2.2 | SQLite（glebarez/sqlite）+ 迁移执行器 + 初始 schema（architecture §3 全表） | `aiclient migrate` |
-| 2.3 | `internal/secret` AES-GCM + 主密钥加载（env `AISC_MASTER_KEY`） | 单元测试加解密 |
+| 2.3 | `internal/secret` AES-GCM + 主密钥加载（env `AISC_SECURITY_MASTER_KEY`） | 单元测试加解密 |
 | 2.4 | 站点 CRUD service + `/api/v1/sites` 路由 + 平台管理员 JWT（首版单用户） | curl 增删改查通过 |
 | 2.5 | `sitedetect` 打分器 + `POST /sites/:id/detect`；`GET /api/status`、`/setup/status` 特征样本测试（可用录制 JSON 固定样本） | 对两类样本站点识别正确 |
 | 2.6 | `serve` 子命令（router+静态托管 frontend/dist）+ `/health` | 浏览器访问 OK |
@@ -111,6 +111,86 @@
 | 前端骨架复制后样式缺失/依赖版本漂移 | M6 | 复制后先跑通 `pnpm dev` 原样页面再改造；锁定 pnpm-lock |
 | 主密钥丢失导致凭据不可解 | M2 | `doctor` 检测解密能力；文档明确备份要求 |
 
-## 8. 明确不做（本计划范围外）
+## 8. 同步引擎演进（M8，M7 之后按 sync-architecture §7 分阶段执行）
+
+> 设计与借鉴结论见 [sync-architecture.md](sync-architecture.md) 与 [ai-gateway-lessons.md](ai-gateway-lessons.md)；存储见 [storage-design.md](storage-design.md)（migration `0004_sync_ext`）。前端配套见 [frontend-roadmap.md](frontend-roadmap.md)。
+
+| 阶段 | 核心任务（对齐 sync-architecture §7） | 关键借鉴项落地 |
+| --- | --- | --- |
+| S1 | site_sync_state 迁移 + scheduler 骨架 + account 域（sub2api Quota 补实现）+ newapi `quota_per_unit` 动态化（改造 `internal/adapter/newapi/keys.go:223`） | 防重入 singleflight、错误码类型化、分页防护 |
+| S2 | usage_log 游标增量（newapi 秒级 / sub2api 按日）+ usage_logs 表 | 幂等键（含 remote_ref 哈希兜底）、at-least-once + 唯一键去重 |
+| S3 | usage_daily 聚合 + Dashboard 数据 API | 时区口径、raw/numeric 双列 |
+| S4 | models/pricing + subscription 同步 | 指纹降级、能力门控扩展 |
+| S5 | announcements + 签到定时化 | ✅ 落地：0006 migration + ListAnnouncements + SyncCheckin + scheduler checkin/announcements 域 |
+
+### S1 落地记录（已完成）
+
+**已落代码**：
+- `migrations/0004_sync_ext.sql` — `sites.sync_cfg` 增列、`site_sync_state` 表、`site_account` 表、`snapshots` 表重建扩展 `kind` 枚举。
+- `internal/model/model.go` — `Site.SyncCfg`、`SiteSyncState`、`SiteAccount` 实体。
+- `internal/repo/repo.go` — `ListSyncStateDue`/`UpsertSyncState`/`MarkSyncStateRun`/`UpsertAccount`/`GetAccount`/`ListAccounts`。
+- `internal/adapter/errors.go` — `CodeOf`/`IsCode` 类型化判定（代替 `strings.Contains`）。
+- `internal/adapter/newapi/quota.go`（新）+ `keys.go`/`affiliate.go` — `quota_per_unit` 动态读取 `/api/status`（缓存 + 500000 fallback），替换硬编码。
+- `internal/adapter/sub2api/keys.go` — `Quota()` best-effort 接 `/api/v1/user/platform-quotas`，无契约回退占位。
+- `internal/service/scheduler.go`（新） — tick 循环、site_sync_state 调度、singleflight per siteID:domain、2min 新鲜度窗口、指数退避（2^n 封顶 1h）、站点级令牌桶限流、按错误码分流。
+- `internal/service/service.go` — `SyncAccount` + `AuthContext` 公开、`SyncSite` 接入 account 域。
+- `internal/httpx/router.go` — `GET /api/v1/account`、`GET /api/v1/accounts`。
+- `cmd/aiclient/...` + `svcwire/wire.go` — serve 启动/停止调度器。
+
+**验收**：`go build ./...` + `go vet ./...` 均通过；`migrate` 成功应用 4 个迁移；`doctor` 连通 SQLite 并正常报告。下一站 S2（usage_log 游标增量）。
+
+### S2 落地记录（已完成）
+
+**已落代码**：
+- `migrations/0005_usage_logs.sql` — `usage_logs` 表 + 双唯一键（`remote_ref` 优先 / 指纹哈希兜底）、`usage_daily` 日聚合表（S3 预留 schema）。
+- `internal/model/model.go` — `UsageLog` 实体。
+- `internal/adapter/adapter.go` — `UsageLog` 类型 + `UsageLogs(ctx, atx, since)` 接口 + `Capabilities.UsageLogs` 门。
+- `internal/adapter/newapi/quota.go` — `UsageLogs` 实现 `GET /api/log/self?start_timestamp=<unix>`（秒级游标）。
+- `internal/adapter/sub2api/usage.go`（新） — `UsageLogs` 实现 `GET /api/v1/usage?start_date=<date>`（按日游标）。
+- `internal/repo/repo.go` — `GetSyncState`/`InsertUsageLogs`（分批 200 + OnConflict upsert）/`ListUsageLogs`。
+- `internal/service/service.go` — `SyncUsageLog`（游标读 `site_sync_state.cursor` JSON `{"since"}`，写回最晚 ts）+ `SyncResult.UsageLogsSync`。
+- `internal/service/scheduler.go` — `usage_log` 域加入 `ensureSiteDomains`/`syncDomain` 调度，401 冻结 credential。
+
+**验收**：`go build ./...`（GOGC=40）、`go vet ./internal/...`、`go test ./internal/...` 均通过；`migrate` 成功应用 5 个迁移；`usage_logs`/`usage_daily` 表结构与 partial unique index 校验通过。下一站 S3（usage_daily 聚合 + Dashboard 数据 API）。
+
+### S3 落地记录（已完成）
+
+**已落代码**：
+- `internal/model/model.go` — `UsageDaily` 实体。
+- `internal/repo/repo.go` — `AggregateUsageDaily`（`INSERT ... GROUP BY ... ON CONFLICT(site_id,day,model_name) DO UPDATE`，幂等 upsert）、`ListUsageDaily`。
+- `internal/service/service.go` — `AggregateUsageDaily`/`ListUsageDaily`/`ListUsageLogs` 入口。
+- `internal/httpx/usage.go`（新） — `GET /sites/:id/usage/logs` + `GET /sites/:id/usage/daily` + `POST /sites/:id/usage/daily` handler。
+- `internal/httpx/router.go` — 路由注册。
+- `internal/service/scheduler.go` — `usage_daily` 域（每日聚合，`interval_s=86400`）+ `syncUsageDaily` 桥接。
+
+**验收**：build + vet + test 均通过；迁移 5/5 应用；`AggregateUsageDaily` SQL 聚合正确（gpt-4o pt=180/tt=300/amt=1.5；gpt-4o-mini pt=30/tt=50/amt=0.2）；ON CONFLICT upsert 幂等（重跑仍 2 行同和）。
+
+### S4 落地记录（已完成）
+
+**已落代码**：
+- `internal/model/model.go` — `SiteModel` 聚合视图实体。
+- `internal/repo/repo.go` — `ListSiteModels`（`usage_daily` 汇总 + `site_account` 余额左连接，`LIMIT ?` 分页）。
+- `internal/service/service.go` — `ListSiteModels` 入口。
+- `internal/httpx/models.go`（新） — `GET /api/v1/models?limit=` handler。
+- `internal/httpx/router.go` — 路由注册。
+
+**验收**：build + vet + test 均通过；`ListSiteModels` SQL 聚合正确（SiteA/gpt-4o 300 tok/1.5 amt/balance 50；SiteB/gpt-4o-mini 50 tok/0.2 amt/balance 100）；`currency` 仅标明不折算。
+
+### S5 落地记录（已完成）
+
+**已落代码**：
+- `migrations/0006_site_announcements.sql`（新） — `site_announcements` 表 + 双唯一键（`content_hash`/`remote_ref`，partial）+ 索引。
+- `internal/model/model.go` — `SiteAnnouncement` + `SiteCheckin` 实体。
+- `internal/repo/repo.go` — `ListAnnouncements`（跨站聚合，按 `published_at DESC`）、`UpsertAnnouncement`（幂等 upsert）、`UpsertCheckin`（`UNIQUE(site_id, date)`）。
+- `internal/service/service.go` — `ListAnnouncements` + `SyncCheckin`（CheckinStatus→Checkin→记录 checkins，能力门控）。
+- `internal/httpx/announcements.go`（新） — `GET /api/v1/announcements?limit=` handler。
+- `internal/httpx/router.go` — 路由注册。
+- `internal/service/scheduler.go` — `announcements` + `checkin` 域加入 `ensureSiteDomains` + `syncDomain` switch（`syncAnnouncements` 占位/能力门控；`syncCheckin` 调用 `SyncCheckin`，401 冻结 credential）。
+
+**验收**：build + vet + test 均通过；迁移 6/6 应用；`site_announcements` 表结构与 unique index 校验通过；`ListAnnouncements` 查询正确（按发布时间倒序），`UpsertAnnouncement` 幂等。
+
+ 验收基线沿用 sync-architecture §7 各阶段「验收」列。
+
+## 9. 明确不做（本计划范围外）
 
 - LLM 请求代理、站点内渠道管理（Q3 暂缓）、多用户/多租户、telegram/微信等会话型通知渠道（渠道注册表已留扩展位）、多实例部署与分布式锁（字段已预留）、站长侧 affiliate 运营管理（FR-10.6）

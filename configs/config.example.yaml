@@ -1,5 +1,6 @@
 # ai-sites-client 配置样例
-# 复制为 config.yaml 后修改；所有键可用环境变量覆盖：AISC_ 前缀 + 下划线路径（AISC_SERVER_ADDR）
+# 复制为 config.yaml 后修改；config.local.yaml（gitignored，优先级最高）适合放本地密钥。
+# 所有键可用环境变量覆盖：AISC_ 前缀 + 下划线路径（AISC_SERVER_ADDR）
 
 server:
   addr: ":8080"          # HTTP 监听地址
@@ -14,6 +15,7 @@ security:
 
 database:
   path: "data/aiclient.db"   # SQLite 文件位置（目录自动创建）
+  auto_migrate: true         # 启动时自动应用 migrations/*.sql（默认 true；设为 false 需手动运行 `aiclient migrate`）
 
 log:
   level: "info"          # debug | info | warn | error

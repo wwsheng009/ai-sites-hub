@@ -26,7 +26,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { eventLevelBadgeCls, siteTypeBadgeCls, statusBadgeCls, timeDisplay } from '../components/ui'
 
 type EditState = { name: string; proxy_url: string; site_type: string }
-type Tab = 'keys' | 'groups' | 'affiliate' | 'events'
+type Tab = 'keys' | 'groups' | 'affiliate' | 'events' | 'checkin'
 
 export default function SiteDetail() {
   const { id } = useParams()
@@ -43,6 +43,7 @@ export default function SiteDetail() {
   const [transfers, setTransfers] = useState<AffTransfer[]>([])
   const [tab, setTab] = useState<Tab>('keys')
   const [busy, setBusy] = useState('')
+  const [checkinEnabled, setCheckinEnabled] = useState(false)
 
   // 编辑站点
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -70,7 +71,16 @@ export default function SiteDetail() {
       apiListTransfers(id),
       apiGetAffiliateInvitees(id),
     ])
-    if (s.status === 'fulfilled') setSite(s.value)
+    if (s.status === 'fulfilled') {
+      setSite(s.value)
+      // 解析 sync_cfg → checkin 开关
+      try {
+        const cfg = s.value.sync_cfg ? JSON.parse(s.value.sync_cfg) : {}
+        setCheckinEnabled(!!cfg.checkin?.enable)
+      } catch {
+        setCheckinEnabled(false)
+      }
+    }
     if (a.status === 'fulfilled') setAuth(a.value)
     if (k.status === 'fulfilled') setKeys(k.value)
     if (g.status === 'fulfilled') setGroups(g.value)
@@ -175,6 +185,7 @@ export default function SiteDetail() {
     { key: 'keys', label: 'Keys', count: keys.length },
     { key: 'groups', label: '分组', count: groups.length },
     { key: 'affiliate', label: '返利' },
+    { key: 'checkin', label: '签到' },
     { key: 'events', label: '事件', count: events.length },
   ]
 
@@ -211,6 +222,12 @@ export default function SiteDetail() {
             <button className="btn btn-secondary btn-sm" disabled={busy === 'authtest'} onClick={() => run(() => apiAuthTest(id!), '登录测试完成', 'authtest')}>
               {busy === 'authtest' ? '测试中…' : '登录测试'}
             </button>
+            <Link
+              to={`/sites/${id}/usage/logs`}
+              className="btn btn-ghost btn-sm"
+            >
+              调用明细
+            </Link>
             <button
               className="btn btn-ghost btn-sm !text-red-500 hover:!bg-red-50 dark:hover:!bg-red-900/20"
               onClick={() => setConfirmDelete(true)}
@@ -500,6 +517,48 @@ export default function SiteDetail() {
                     <span className="empty-state-desc">配置凭据并同步后自动获取（FR-10）</span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* 签到 */}
+            {tab === 'checkin' && (
+              <div className="card-body space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-white">每日自动签到</h4>
+                    <p className="mt-0.5 text-xs text-muted">站点本地时区每日 08:05（抖动）自动执行签到，仅 new-api 站点支持</p>
+                  </div>
+                  <label className="relative inline-flex h-6 w-10 items-center rounded-full transition-colors">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={checkinEnabled}
+                      onChange={async (e) => {
+                        const next = e.target.checked
+                        setCheckinEnabled(next)
+                        setBusy('checkin')
+                        try {
+                          const cfg = JSON.parse(site.sync_cfg || '{}')
+                          cfg.checkin = { ...(cfg.checkin || {}), enable: next }
+                          await apiUpdateSite(id!, { sync_cfg: JSON.stringify(cfg) })
+                          toast.success(next ? '已开启每日自动签到' : '已关闭每日自动签到')
+                          await load()
+                        } catch (err) {
+                          toast.error(errMsg(err))
+                          setCheckinEnabled(!next) // 回滚
+                        } finally {
+                          setBusy('')
+                        }
+                      }}
+                    />
+                    <span className="peer h-6 w-10 rounded-full bg-gray-300 dark:bg-dark-700 peer-checked:bg-primary-600" />
+                    <span className="absolute left-0 top-0 flex h-6 w-10 items-center justify-between px-1">
+                      <span className="h-4 w-4 rounded-full bg-white" />
+                      <span className="h-4 w-4 rounded-full bg-white" />
+                    </span>
+                  </label>
+                </div>
+                {busy === 'checkin' && <span className="text-xs text-muted">保存中…</span>}
               </div>
             )}
 

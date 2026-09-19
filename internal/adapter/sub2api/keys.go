@@ -50,13 +50,13 @@ type groupDTO struct {
 
 // affData GET /api/v1/user/aff 响应 data（AffiliateDetail：概览 + 受邀用户列表）。
 type affData struct {
-	AffCode        string              `json:"aff_code"`
-	AffCount       int                 `json:"aff_count"`
-	AffQuota       *float64            `json:"aff_quota"`        // 可划转返利余额
-	AffFrozenQuota *float64            `json:"aff_frozen_quota"` // 冻结中
-	AffHistory     *float64            `json:"aff_history_quota"`
-	RebatePercent  *float64            `json:"effective_rebate_rate_percent"`
-	Invitees       []affInviteeDTO     `json:"invitees"`
+	AffCode        string          `json:"aff_code"`
+	AffCount       int             `json:"aff_count"`
+	AffQuota       *float64        `json:"aff_quota"`        // 可划转返利余额
+	AffFrozenQuota *float64        `json:"aff_frozen_quota"` // 冻结中
+	AffHistory     *float64        `json:"aff_history_quota"`
+	RebatePercent  *float64        `json:"effective_rebate_rate_percent"`
+	Invitees       []affInviteeDTO `json:"invitees"`
 }
 
 // affInviteeDTO invitees 列表项（email 上游服务层已 maskEmail 脱敏）。
@@ -140,12 +140,46 @@ func (a *Adapter) ListGroups(ctx context.Context, atx adapter.AuthCtx) ([]adapte
 	return groups, nil
 }
 
-// Quota 账号级额度（M2：无直接端点契约，返回 has_*=false 占位，作业层按能力跳过展示）。
+// Quota 账号级额度（best-effort：优先 /api/v1/user/platform-quotas；无契约时回退占位）。
 func (a *Adapter) Quota(ctx context.Context, atx adapter.AuthCtx) (adapter.AccountQuota, error) {
 	if atx.AccessToken == "" {
 		return adapter.AccountQuota{}, adapter.NewErr(adapter.CodeUnauthorized, "缺少 access token", nil)
 	}
-	return adapter.AccountQuota{Currency: "USD", UnitNote: "sub2api 账号额度端点待 M4 接入"}, nil
+	var env apiEnvelope
+	status, _, err := a.hc.DoJSONWithHeader(ctx, "POST", a.endpoint("/api/v1/user/platform-quotas"),
+		map[string]any{}, &env, authHeaders(atx.AccessToken))
+	if err != nil || status != http.StatusOK || env.Code != 0 {
+		// 上游无此端点/结构未知：回退占位，不阻塞
+		return adapter.AccountQuota{Currency: "USD", UnitNote: "sub2api 账号额度端点待确认", HasBalance: false, HasUsed: false}, nil
+	}
+	var data struct {
+		Balance  *float64 `json:"balance"`
+		Used     *float64 `json:"used"`
+		Currency string   `json:"currency"`
+		UnitNote string   `json:"unit_note"`
+	}
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		return adapter.AccountQuota{Currency: "USD", UnitNote: "sub2api 账号额度端点解析失败", HasBalance: false, HasUsed: false}, nil
+	}
+	if data.Currency == "" {
+		data.Currency = "USD"
+	}
+	return adapter.AccountQuota{
+		Balance:    derefFloat64(data.Balance),
+		Used:       derefFloat64(data.Used),
+		Currency:   data.Currency,
+		UnitNote:   data.UnitNote,
+		HasBalance: data.Balance != nil,
+		HasUsed:    data.Used != nil,
+	}, nil
+}
+
+// derefFloat64 安全解引用 *float64（nil → 0）。
+func derefFloat64(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // AffiliateInfo 返利概览（FR-10.1；rebate_rate 以小数存储，available 暂无对应端点记 NULL）。

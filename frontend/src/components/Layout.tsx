@@ -18,6 +18,16 @@ const GlobeIcon = ({ className = iconClass }: IconProps) => (
   </svg>
 )
 
+const BellIcon = ({ className = iconClass }: IconProps) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
+    />
+  </svg>
+)
+
 const CurrencyIcon = ({ className = iconClass }: IconProps) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -61,6 +71,9 @@ function useTheme() {
 const navItems = [
   { to: '/', label: '概览', icon: SquaresIcon, end: true },
   { to: '/sites', label: '站点管理', icon: GlobeIcon, end: false },
+  { to: '/models', label: '模型广场', icon: SquaresIcon, end: false },
+  { to: '/announcements', label: '公告', icon: BellIcon, end: false },
+  { to: '/events', label: '事件中心', icon: BellIcon, end: false },
   { to: '/affiliates', label: '返利中心', icon: CurrencyIcon, end: false },
 ]
 
