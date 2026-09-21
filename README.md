@@ -41,5 +41,6 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -WithWebUI -Version v
 ```
 
 - 不带 `-WithWebUI` 时编译默认形态（无前端嵌入，仅 Web/HTTP API/cmd），开发调试用 `go run ./cmd/aiclient serve` + `npm run dev`
+- 查看全部参数与用法：`powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -h`
 - 嵌入实现：build tag `webui_embed`（`internal/webui/embed.go` 的 `//go:embed all:dist`）；SPA 路由回退与静态缓存见 `internal/httpx/spa.go`
 - `version` 子命令可验证构建形态：`aiclient v0.1.0 (release, webui-embedded)`

@@ -4,15 +4,53 @@
 #   scripts/build.ps1                   # 后端单二进制（API-only，不依赖前端）
 #   scripts/build.ps1 -WithWebUI        # npm build + 嵌入前端 → 单文件 dist/aiclient.exe
 #   scripts/build.ps1 -WithWebUI -Version v0.1.0   # 注入版本号（version 命令可见）
+#   scripts/build.ps1 -h                # 查看帮助（不执行构建）
 #
 # 产物：dist/aiclient.exe（-WithWebUI 时内含前端 SPA，部署只需该文件 + 可选 config.yaml）
 param(
+    [Alias("h")]
+    [switch]$Help,
     [switch]$WithWebUI,
     [string]$Version = "",
     [string]$Out = "dist"
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Help) {
+    $usage = @"
+ai-sites-client 构建脚本（scripts/build.ps1）
+
+用法:
+  scripts/build.ps1 [选项]
+
+选项:
+  -h, -Help         显示本帮助并退出（不执行构建）
+  -WithWebUI        构建前执行 npm run build，并把 frontend/dist 同步到
+                    internal/webui/dist 后以 -tags webui_embed 嵌入二进制
+  -Version <ver>    注入版本号（如 v0.1.0），同时把 buildInfo 标记为 release
+  -Out <dir>        产物输出目录，默认 dist
+
+产物:
+  <Out>/aiclient.exe
+    不带 -WithWebUI：API-only，不含前端资源，serve 仅提供 /api
+    带 -WithWebUI  ：单文件二进制，内含前端 SPA（部署只需该文件 + 可选 config.yaml）
+
+示例:
+  scripts/build.ps1                                # 默认：API-only 构建
+  scripts/build.ps1 -WithWebUI                     # 打包前端资源
+  scripts/build.ps1 -WithWebUI -Version v0.1.0     # 打包前端 + 注入版本号
+  scripts/build.ps1 -Out bin -Version v0.1.0       # 指定输出目录
+  scripts/build.ps1 -h                             # 查看帮助
+
+说明:
+  -WithWebUI 流程：npm install（node_modules 缺失时）-> npm run build
+  -> 同步 frontend/dist 到 internal/webui/dist -> go build -tags webui_embed
+"@
+    Write-Output $usage
+    exit 0
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
