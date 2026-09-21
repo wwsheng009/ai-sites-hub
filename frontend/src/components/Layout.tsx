@@ -118,7 +118,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </Link>
           {!collapsed && (
             <div className="min-w-0">
-              <div className="sidebar-brand-title">ai-sites-client</div>
+              <div className="sidebar-brand-title">ai-sites-hub</div>
               <div className="text-xs text-gray-400 dark:text-dark-400">AI 站点集中管理</div>
             </div>
           )}

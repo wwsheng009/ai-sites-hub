@@ -13,7 +13,7 @@
 | API Key（中继） | `sk-xxx`，`TokenAuth()`（Bearer / x-api-key / ?key=）；`TokenAuthReadOnly()` 为只读宽松版 | `sk-xxx`，`APIKeyAuthMiddleware`（Bearer / x-api-key） |
 | 公开接口 | `/api/status`、`/api/notice`、`/api/pricing`（按模块开关）等 | `/health`、`/api/v1/settings/public`、`/model-plaza`（OptionalJWT）等 |
 
-> ai-sites-client 现有 adapter 已按此实现认证阶梯：newapi = session + PAT（masked key），sub2api = JWT（refresh token 自动续期）。
+> ai-sites-hub 现有 adapter 已按此实现认证阶梯：newapi = session + PAT（masked key），sub2api = JWT（refresh token 自动续期）。
 
 ## 一、newapi 用户侧接口清单
 

@@ -1,4 +1,4 @@
-# 架构设计 — ai-sites-client
+# 架构设计 — ai-sites-hub
 
 > 版本：v0.2（2026-09-19）
 > 前置文档：`../requirements/requirements.md`（FR/NFR 编号在本文引用）、`../analysis/`（三份上游分析）
@@ -8,7 +8,7 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                        ai-sites-client 单二进制                      │
+│                        ai-sites-hub 单二进制                       │
 │                                                                    │
 │  ┌─────────────┐   ┌──────────────────────────────┐                │
 │  │ Web 前端     │   │ HTTP API (Gin /api/v1)       │                │
@@ -49,7 +49,7 @@
 ## 2. 目录结构（Go 工程骨架）
 
 ```
-ai-sites-client/
+ai-sites-hub/
 ├── cmd/aiclient/              # 单一入口（cobra）
 │   └── main.go
 ├── internal/

@@ -1,4 +1,4 @@
-# 实施计划 — ai-sites-client
+# 实施计划 — ai-sites-hub
 
 > 版本：v0.2（2026-09-19）
 > 前置：需求已冻结（`../requirements/requirements.md`），架构已定稿（`../architecture/architecture.md`）

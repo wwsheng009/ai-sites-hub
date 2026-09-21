@@ -1,4 +1,4 @@
-# ai-sites-client
+# ai-sites-hub
 
 AI 中转站点集中管理平台：集中管理大量 sub2api / new-api 站点——自动识别站点类型、凭据自动登录、定时签到、key/分组/额度/返利集中查询，提供 Web / HTTP API / cmd 三种入口。
 

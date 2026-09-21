@@ -1,4 +1,4 @@
--- 0001_init.sql — ai-sites-client 初始 schema（architecture §3 v0.2，SQLite 单方言）
+-- 0001_init.sql — ai-sites-hub 初始 schema（architecture §3 v0.2，SQLite 单方言）
 -- 迁移器按文件名字典序执行，已执行版本记录在 schema_migrations。
 
 CREATE TABLE IF NOT EXISTS schema_migrations (

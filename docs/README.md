@@ -1,4 +1,4 @@
-# ai-sites-client 文档中心
+# ai-sites-hub 文档中心
 
 AI 中转站点集中管理平台（sub2api / new-api 多站点管理）的文档中心。
 

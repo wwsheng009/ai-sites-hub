@@ -1,4 +1,4 @@
-﻿# ai-sites-client 构建脚本（PowerShell 5.1+ / pwsh 通用）
+﻿# ai-sites-hub 构建脚本（PowerShell 5.1+ / pwsh 通用）
 #
 # 用法（在仓库根目录执行）：
 #   scripts/build.ps1                   # 后端单二进制（API-only，不依赖前端）
@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 
 if ($Help) {
     $usage = @"
-ai-sites-client 构建脚本（scripts/build.ps1）
+ai-sites-hub 构建脚本（scripts/build.ps1）
 
 用法:
   scripts/build.ps1 [选项]

@@ -25,7 +25,7 @@ type Adapter struct {
 }
 
 // UA 标识。
-const UserAgent = "ai-sites-client/0.1 (+newapi-adapter)"
+const UserAgent = "ai-sites-hub/0.1 (+newapi-adapter)"
 
 // New 构建 adapter。proxyURL 为出站代理（空=直连）。
 func New(baseURL, proxyURL string, log *slog.Logger) (*Adapter, error) {

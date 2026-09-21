@@ -1,4 +1,4 @@
-# ai-sites-client 配置样例
+# ai-sites-hub 配置样例
 # 复制为 config.yaml 后修改；config.local.yaml（gitignored，优先级最高）适合放本地密钥。
 # 所有键可用环境变量覆盖：AISC_ 前缀 + 下划线路径（AISC_SERVER_ADDR）
 
